@@ -242,6 +242,7 @@ runLlvm dflags ver out us m = do
     _ <- Context.withContext (\c ->
                                Err.runErrorT $
                                  (General.withModuleFromAST c (envModule env)
+--                                   (\m -> Err.runErrorT $ General.writeObjectToFile "test.o" m)))
                                    (\m -> Err.runErrorT $ General.writeBitcodeToFile "test.bc" m)))
     return ()
   where env = LlvmEnv { envFunMap = emptyUFM

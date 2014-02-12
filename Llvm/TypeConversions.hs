@@ -9,6 +9,7 @@ import Llvm.MetaData
 import Llvm.Types as Types
 
 import LLVM.General.AST as AST
+import qualified LLVM.General.AST.Target as T
 import qualified LLVM.General.AST.Linkage as L
 import qualified LLVM.General.AST.Global as G
 import qualified LLVM.General.AST.Visibility as V
@@ -506,6 +507,14 @@ platformToTargetTriple platform =
         "arm-apple-darwin10"
     _ ->
         ""
+
+--FIXME
+{-
+platformToTargetMachine :: Platform -> Target
+platformToTargetMachine platform =
+    do T.initializeAllTargets --must call this before lookupTarget
+       (target, err) <- Err.runErrorT $ T.lookupTarget Nothing (platformToTargetTriple platform)
+  -}     
 
 llvmVarToName :: LlvmVar -> AST.Name
 llvmVarToName (LMGlobalVar name ty link sec ali con) = Name (unpackFS name)

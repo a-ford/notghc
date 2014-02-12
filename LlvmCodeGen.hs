@@ -29,7 +29,7 @@ import FastString
 import Outputable
 import UniqSupply
 import Platform
-import SysTools ( figureLlvmVersion )
+import SysTools ( figureLlvmGen )
 import qualified Stream
 
 import Control.Monad ( when )

@@ -5,19 +5,19 @@
 module Llvm.PpLlvm (
 
     -- * Top level LLVM objects.
-    ppLlvmModule,
-    ppLlvmComments,
-    ppLlvmComment,
-    ppLlvmGlobals,
-    ppLlvmGlobal,
-    ppLlvmAliases,
-    ppLlvmAlias,
-    ppLlvmMetas,
-    ppLlvmMeta,
-    ppLlvmFunctionDecls,
-    ppLlvmFunctionDecl,
-    ppLlvmFunctions,
-    ppLlvmFunction,
+    ppLlvmGenModule,
+    ppLlvmGenComments,
+    ppLlvmGenComment,
+    ppLlvmGenGlobals,
+    ppLlvmGenGlobal,
+    ppLlvmGenAliases,
+    ppLlvmGenAlias,
+    ppLlvmGenMetas,
+    ppLlvmGenMeta,
+    ppLlvmGenFunctionDecls,
+    ppLlvmGenFunctionDecl,
+    ppLlvmGenFunctions,
+    ppLlvmGenFunction,
 
     ) where
 

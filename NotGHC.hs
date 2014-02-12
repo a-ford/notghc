@@ -43,7 +43,7 @@ main = do
   let infiles = filterHsFiles args0
   (args1, _warns) <- parseStaticFlags (map noLoc args0)
   defaultErrorHandler defaultFatalMessager defaultFlushOut $ do
-    runGhc (Just "/home/alex/3rd-year-project/ghc-head/inplace/lib/") $ do
+    runGhc (Just "/home/alex/ghc-head/inplace/lib/") $ do
       dflags0 <- getSessionDynFlags
       (dflags1, _leftover, _warns) <- parseDynamicFlags dflags0 args1
       -- Hook in the new LLVM back end
@@ -186,7 +186,6 @@ compileCmmFile hsc_env input_fn output_fn = runHsc hsc_env $ do
     no_loc = ModLocation{ ml_hs_file  = Just input_fn,
                           ml_hi_file  = panic "hscCmmFile: no hi file",
                           ml_obj_file = panic "hscCmmFile: no obj file" }
-
 
 codeOutput' :: DynFlags
            -> Module
