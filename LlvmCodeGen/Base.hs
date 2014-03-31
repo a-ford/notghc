@@ -17,9 +17,9 @@ module LlvmCodeGen.Base (
         runLlvm, liftStream, withClearVars, varLookup, varInsert,
         markStackReg, checkStackReg,
         funLookup, funInsert, getLlvmVer, getDynFlags, getDynFlag, getLlvmPlatform,
-        dumpIfSetLlvm, renderLlvm, runUs, markUsedVar, getUsedVars,
+        dumpIfSetLlvm, runUs, markUsedVar, getUsedVars,
         ghcInternalFunctions,
-
+        --renderLlvm,
         getMetaUniqueId,
         setUniqMeta, getUniqMeta,
         freshSectionId,
@@ -58,9 +58,13 @@ import qualified Stream
 
 import qualified LLVM.General as General
 import qualified LLVM.General.Context as Context
+import qualified LLVM.General.Target as Target
 import LLVM.General.AST
+import LLVM.General.PrettyPrint
 
 import qualified Control.Monad.Error as Err
+import Control.Monad (ap)
+import Control.Applicative (Applicative(..))
 
 -- ----------------------------------------------------------------------------
 -- * Some Data Types
@@ -160,6 +164,8 @@ llvmFunArgs dflags live =
           isSSE (FloatReg _)  = True
           isSSE (DoubleReg _) = True
           isSSE (XmmReg _)    = True
+          isSSE (YmmReg _)    = True
+          isSSE (ZmmReg _)    = True
           isSSE _             = False
 
 -- | Llvm standard fun attributes
@@ -190,7 +196,7 @@ minSupportLlvmVersion :: LlvmVersion
 minSupportLlvmVersion = 28
 
 maxSupportLlvmVersion :: LlvmVersion
-maxSupportLlvmVersion = 33
+maxSupportLlvmVersion = 34
 
 -- ----------------------------------------------------------------------------
 -- * Environment Handling
@@ -199,8 +205,8 @@ maxSupportLlvmVersion = 33
 data LlvmEnv = LlvmEnv
   { envVersion :: LlvmVersion      -- ^ LLVM version
   , envDynFlags :: DynFlags        -- ^ Dynamic flags
-  , envOutput :: BufHandle         -- ^ Output buffer
-  , envModule :: Module            -- ^ Output module
+--  , envOutput :: BufHandle         -- ^ Output buffer
+  , envModule :: Module            -- ^ Output LLVM module
   , envUniq :: UniqSupply          -- ^ Supply of unique values
   , envNextSection :: Int          -- ^ Supply of fresh section IDs
   , envFreshMeta :: Int            -- ^ Supply of fresh metadata IDs
@@ -218,13 +224,19 @@ type LlvmEnvMap = UniqFM LlvmType
 
 -- | The Llvm monad. Wraps @LlvmEnv@ state as well as the @IO@ monad
 newtype LlvmM a = LlvmM { runLlvmM :: LlvmEnv -> IO (a, LlvmEnv) }
+
+instance Functor LlvmM where
+    fmap f m = LlvmM $ \env -> do (x, env') <- runLlvmM m env
+                                  return (f x, env')
+
+instance Applicative LlvmM where
+    pure = return
+    (<*>) = ap
+
 instance Monad LlvmM where
     return x = LlvmM $ \env -> return (x, env)
     m >>= f  = LlvmM $ \env -> do (x, env') <- runLlvmM m env
                                   runLlvmM (f x) env'
-instance Functor LlvmM where
-    fmap f m = LlvmM $ \env -> do (x, env') <- runLlvmM m env
-                                  return (f x, env')
 
 instance HasDynFlags LlvmM where
     getDynFlags = LlvmM $ \env -> return (envDynFlags env, env)
@@ -233,32 +245,103 @@ instance HasDynFlags LlvmM where
 liftIO :: IO a -> LlvmM a
 liftIO m = LlvmM $ \env -> do x <- m
                               return (x, env)
-
+{-
+simplifyError :: Err.ErrorT a IO (Either a b) -> Err.ErrorT a IO b
+simplifyError err = err >>= (\v -> case v of
+                                     Left e -> Err.ErrorT (return (Left e))
+                                     Right v' -> Err.ErrorT (return v'))
+-}
 -- | Get initial Llvm environment.
-runLlvm :: DynFlags -> LlvmVersion -> BufHandle -> UniqSupply -> LlvmM () -> IO ()
-runLlvm dflags ver out us m = do
-    _ <- runLlvmM m env
-    -- As a temporary stand-in, spit out the bitcode here.
-    _ <- Context.withContext (\c ->
-                               Err.runErrorT $
-                                 (General.withModuleFromAST c (envModule env)
---                                   (\m -> Err.runErrorT $ General.writeObjectToFile "test.o" m)))
-                                   (\m -> Err.runErrorT $ General.writeBitcodeToFile "test.bc" m)))
-    return ()
-  where env = LlvmEnv { envFunMap = emptyUFM
-                      , envVarMap = emptyUFM
-                      , envStackRegs = []
-                      , envUsedVars = []
-                      , envAliases = emptyUniqSet
-                      , envVersion = ver
-                      , envDynFlags = dflags
-                      , envOutput = out
-                      , envModule = defaultModule
-                      , envUniq = us
-                      , envFreshMeta = 0
-                      , envUniqMeta = emptyUFM
-                      , envNextSection = 1
-                      }
+runLlvm :: DynFlags -> LlvmVersion -> FilePath -> UniqSupply -> LlvmM () -> IO ()
+runLlvm dflags ver filenm us m = do
+    (n, env') <- runLlvmM m env
+    debugTraceMsg dflags 1 (Outp.text (showPretty (envModule env')))
+
+    --targetMachine <- platformToTargetMachine (targetPlatform dflags)
+
+    debugTraceMsg dflags 0 (Outp.text "not dead before")
+
+    -- Some kind of problem with invalid pointers takes place in the next bit
+    -- and crashes the program hard, but somehow it still produces assembly
+    r <- Context.withContext                                                                    -- IO (Either String ())
+           (\c ->                                                                               -- Context -> IO (Either String ())
+--             (Err.runErrorT . simplifyError) $                                                  -- IO (Either String ())
+               Err.runErrorT $
+               Target.withDefaultTargetMachine                                                  -- ErrorT String IO (Either String ())
+                 (\tm ->                                                                        -- TargetMachine -> IO (Either String ())
+--                    (Err.runErrorT . simplifyError) $                                           -- IO (Either String ())
+                    Err.runErrorT $
+                      (General.withModuleFromAST c (envModule env')                             -- ErrorT String IO (Either String ())
+                         (\mod ->                                                               -- Module -> IO (Either String ())
+                           Err.runErrorT $                                                      -- IO (Either String ())
+                             General.writeTargetAssemblyToFile tm (General.File filenm) mod)))) -- ErrorT String IO ()
+    case r of
+      Left err -> error $ "runLlvm: Whilst outputting assembly: " ++ err
+      Right _ -> return ()
+--    debugTraceMsg dflags 0 (Outp.text "not dead after")
+    where env = LlvmEnv { envFunMap = emptyUFM
+                        , envVarMap = emptyUFM
+                        , envStackRegs = []
+                        , envUsedVars = []
+                        , envAliases = emptyUniqSet
+                        , envVersion = ver
+                        , envDynFlags = dflags
+                        , envModule = defaultModule
+                        , envUniq = us
+                        , envFreshMeta = 0
+                        , envUniqMeta = emptyUFM
+                        , envNextSection = 1
+                        }
+
+{-
+withContext :: (Context -> IO a) -> IO a
+withDefaultTargetMachine :: (TargetMachine -> IO a) -> ErrorT String IO a
+withModuleFromAST :: Context -> AST.Module -> (Module -> IO a) -> ErrorT String IO a
+writeTargetAssemblyToFile :: TargetMachine -> File -> Module -> ErrorT String IO ()
+runErrorT :: ErrorT e m a -> m (Either e a)
+-}
+{-
+writeTargetAssemblyToFile -- TargetMachine -> File -> Module -> ErrorT String IO ()
+    err <- Context.withContext
+         (\c ->
+           Err.runErrorT $ -- IO Either String ByteString
+             (General.withModuleFromAST c (envModule env')
+                (\mod -> Err.runErrorT $ General.writeLLVMAssemblyToFile (General.File "test.ll") mod)))
+
+    case err of
+      Left err' -> error err
+      Right bitcode -> error "it worked" --debugTraceMsg dflags 0 (Outp.text (show bitcode))
+-}
+
+
+{-    _ <- Context.withContext -- IO Either String IO Either String IO Either String ()
+         (\c ->
+           Err.runErrorT $ -- IO Either String IO Either String IO Either String ()
+             (General.withModuleFromAST c (envModule env') -- ErrorT String IO Either String IO Either String ()
+               (\m -> Err.runErrorT $ -- IO Either String IO Either String ()
+                 Target.withDefaultTargetMachine -- ErrorT String IO Either String ()
+                  (\t -> Err.runErrorT $  -- IO Either String ()
+                    General.writeObjectToFile t (General.File "test.o") m))))
+-}
+
+
+--    debugTraceMsg dflags 0 (Outp.text "not dead before")
+{-    _ <- Context.withContext
+         (\c ->
+           Err.runErrorT $
+             (General.withModuleFromAST c (envModule env')
+                (\mod -> Err.runErrorT $ General.writeBitcodeToFile (General.File "test.bc") mod)))
+-}
+{-
+    _ <- Context.withContext -- IO Either String IO Either String IO Either String ()
+         (\c ->
+           Err.runErrorT $ -- IO Either String IO Either String IO Either String ()
+             (General.withModuleFromAST c (envModule env') -- ErrorT String IO Either String IO Either String ()
+               (\m -> Err.runErrorT $ -- IO Either String IO Either String ()
+                 Target.withDefaultTargetMachine -- ErrorT String IO Either String ()
+                  (\t -> Err.runErrorT $  -- IO Either String ()
+                    General.writeObjectToFile t (General.File "test.o") m))))
+-}
 
 -- | Modify module within an environment (external)
 modifyModule :: (Module -> Module) -> LlvmM ()
@@ -327,6 +410,7 @@ dumpIfSetLlvm flag hdr doc = do
   liftIO $ dumpIfSet_dyn dflags flag hdr doc
 
 -- | Prints the given contents to the output handle
+{-
 renderLlvm :: Outp.SDoc -> LlvmM ()
 renderLlvm sdoc = do
 
@@ -339,6 +423,7 @@ renderLlvm sdoc = do
     -- Dump, if requested
     dumpIfSetLlvm Opt_D_dump_llvm "LLVM Code" sdoc
     return ()
+-}
 
 -- | Add a definition to a given module
 appendDefinitions :: Module -> [Definition] -> Module
@@ -346,7 +431,10 @@ appendDefinitions mod defs = mod {moduleDefinitions =  (moduleDefinitions mod) +
 
 -- | Add a definition to the llvm module.
 outputLlvm :: [Definition] -> LlvmM ()
-outputLlvm defs = modifyEnv $ \env -> env {envModule = appendDefinitions (envModule env) defs}
+outputLlvm defs = do dflags <- getDynFlags
+                     (modifyEnv $ \env ->
+                          env {envModule = appendDefinitions (envModule env) defs})
+                     return ()
 
 -- | Run a @UniqSM@ action with our unique supply
 runUs :: UniqSM a -> LlvmM a
@@ -421,7 +509,7 @@ strDisplayName_llvm lbl = do
     dflags <- getDynFlags
     let sdoc = pprCLabel platform lbl
         depth = Outp.PartWay 1
-        style = Outp.mkUserStyle (const Outp.NameNotInScope2, const True) depth
+        style = Outp.mkUserStyle (\ _ _ -> Outp.NameNotInScope2, Outp.alwaysQualifyModules) depth
         str = Outp.renderWithStyle dflags sdoc style
     return (fsLit (dropInfoSuffix str))
 
@@ -439,7 +527,7 @@ strProcedureName_llvm lbl = do
     dflags <- getDynFlags
     let sdoc = pprCLabel platform lbl
         depth = Outp.PartWay 1
-        style = Outp.mkUserStyle (const Outp.NameUnqual, const False) depth
+        style = Outp.mkUserStyle Outp.neverQualify depth
         str = Outp.renderWithStyle dflags sdoc style
     return (fsLit str)
 
@@ -504,3 +592,4 @@ generateAliases = do
 -- | Error function
 panic :: String -> a
 panic s = Outp.panic $ "LlvmCodeGen.Base." ++ s
+

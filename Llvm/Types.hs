@@ -58,6 +58,25 @@ data LlvmType
   | LMFunction LlvmFunctionDecl
   deriving (Eq)
 
+instance Outputable LlvmType where
+  ppr (LMInt size     ) = char 'i' <> ppr size
+  ppr (LMFloat        ) = text "float"
+  ppr (LMDouble       ) = text "double"
+  ppr (LMFloat80      ) = text "x86_fp80"
+  ppr (LMFloat128     ) = text "fp128"
+  ppr (LMPointer x    ) = ppr x <> char '*'
+  ppr (LMArray nr tp  ) = char '[' <> ppr nr <> text " x " <> ppr tp <> char ']'
+  ppr (LMVector nr tp ) = char '<' <> ppr nr <> text " x " <> ppr tp <> char '>'
+  ppr (LMLabel        ) = text "label"
+  ppr (LMVoid         ) = text "void"
+  ppr (LMStruct tys   ) = text "<{" <> ppCommaJoin tys <> text "}>"
+  ppr (LMMetadata     ) = text "metadata"
+
+  ppr (LMFunction (LlvmFunctionDecl _ _ _ r varg p _))
+    = ppr r <+> lparen <> ppParams varg p <> rparen
+
+  ppr (LMAlias (s,_)) = char '%' <> ftext s
+
 -- | Shown types are not neccessarily pretty
 instance Show LlvmType where
   show (LMInt size     ) = "i" ++ show size
@@ -78,25 +97,6 @@ instance Show LlvmType where
 
   show (LMAlias (s,_)) = "%"  ++ unpackFS s
 
-instance Outputable LlvmType where
-  ppr (LMInt size     ) = char 'i' <> ppr size
-  ppr (LMFloat        ) = text "float"
-  ppr (LMDouble       ) = text "double"
-  ppr (LMFloat80      ) = text "x86_fp80"
-  ppr (LMFloat128     ) = text "fp128"
-  ppr (LMPointer x    ) = ppr x <> char '*'
-  ppr (LMArray nr tp  ) = char '[' <> ppr nr <> text " x " <> ppr tp <> char ']'
-  ppr (LMVector nr tp ) = char '<' <> ppr nr <> text " x " <> ppr tp <> char '>'
-  ppr (LMLabel        ) = text "label"
-  ppr (LMVoid         ) = text "void"
-  ppr (LMStruct tys   ) = text "<{" <> ppCommaJoin tys <> text "}>"
-  ppr (LMMetadata     ) = text "metadata"
-
-  ppr (LMFunction (LlvmFunctionDecl _ _ _ r varg p _))
-    = ppr r <+> lparen <> ppParams varg p <> rparen
-
-  ppr (LMAlias (s,_)) = char '%' <> ftext s
-
 ppParams :: LlvmParameterListType -> [LlvmParameter] -> SDoc
 ppParams varg p
   = let varg' = case varg of
@@ -109,7 +109,6 @@ ppParams varg p
 
 -- | An LLVM section definition. If Nothing then let LLVM decide the section
 type LMSection = Maybe LMString
---type LMSection = Maybe String
 type LMAlign = Maybe Int
 
 data LMConst = Global      -- ^ Mutable global variable
@@ -134,6 +133,11 @@ instance Outputable LlvmVar where
   ppr (LMLitVar x)  = ppr x
   ppr (x         )  = ppr (getVarType x) <+> ppName x
 
+instance Show LlvmVar where
+  show (LMGlobalVar name ty link sec ali con) = "global " ++ (unpackFS name) ++ " Ty: " ++ (show ty)
+  show (LMLocalVar uniq ty) = "unnamed local " ++ (show uniq) ++ " Ty: " ++ (show ty)
+  show (LMNLocalVar name ty) = "named local " ++ (unpackFS name) ++ " Ty: " ++ (show ty)
+  show (LMLitVar lit) = "Lit Var: " ++ show lit
 
 -- | Llvm Literal Data.
 --
@@ -154,6 +158,17 @@ data LlvmLit
 instance Outputable LlvmLit where
   ppr l@(LMVectorLit {}) = ppLit l
   ppr l                  = ppr (getLitType l) <+> ppLit l
+
+instance Show LlvmLit where
+    show (LMIntLit i (LMInt 32))  = show (fromInteger i :: Int32)
+    show (LMIntLit i (LMInt 64))  = show (fromInteger i :: Int64)
+    show (LMIntLit   i _       )  = show ((fromInteger i)::Int)
+    show (LMFloatLit r LMFloat )  = show r ++ " float"
+    show (LMFloatLit r LMDouble)  = show r ++ " double"
+    show f@(LMFloatLit _ _)       = error "failed to show float lit"
+    show (LMVectorLit ls  )       = (concat . map show) ls
+    show (LMNullLit _     )       = "null"
+    show (LMUndefLit _    )       = "undef"
 
 
 -- | Llvm Static Data.
@@ -225,6 +240,10 @@ ppPlainName (LMLocalVar  x _        ) = text ('l' : show x)
 ppPlainName (LMNLocalVar x _        ) = ftext x
 ppPlainName (LMLitVar    x          ) = ppLit x
 
+-- | Call ppPlainName but return a String instead of SDoc
+showPlainName :: DynFlags -> LlvmVar -> String
+showPlainName dflags var = (showSDoc dflags . ppPlainName) var
+
 -- | Print a literal value. No type.
 ppLit :: LlvmLit -> SDoc
 ppLit (LMIntLit i (LMInt 32))  = ppr (fromInteger i :: Int32)
@@ -273,6 +292,12 @@ getLink :: LlvmVar -> LlvmLinkageType
 getLink (LMGlobalVar _ _ l _ _ _) = l
 getLink _                         = Internal
 
+getElemType :: LlvmType -> LlvmType
+getElemType (LMPointer ty) = ty
+getElemType (LMArray l ty) = ty
+getElemType (LMVector l ty) = ty
+getElemType x = error $ (show x) ++ " does not have elements"
+
 -- | Add a pointer indirection to the supplied type. 'LMLabel' and 'LMVoid'
 -- cannot be lifted.
 pLift :: LlvmType -> LlvmType
@@ -286,13 +311,14 @@ pVarLift :: LlvmVar -> LlvmVar
 pVarLift (LMGlobalVar s t l x a c) = LMGlobalVar s (pLift t) l x a c
 pVarLift (LMLocalVar  s t        ) = LMLocalVar  s (pLift t)
 pVarLift (LMNLocalVar s t        ) = LMNLocalVar s (pLift t)
-pVarLift (LMLitVar    _          ) = error $ "Can't lower a literal type!"
+pVarLift (LMLitVar    _          ) = error $ "Can't lift a literal type!"
 
 -- | Remove the pointer indirection of the supplied type. Only 'LMPointer'
 -- constructors can be lowered.
 pLower :: LlvmType -> LlvmType
 pLower (LMPointer x) = x
-pLower x  = error $ showSDoc undefined (ppr x) ++ " is a unlowerable type, need a pointer"
+pLower x  = error $ "Can't lower a non-pointer type: " ++ show x
+--showSDoc undefined (ppr x) ++ " is a unlowerable type, need a pointer"
 
 -- | Lower a variable of 'LMPointer' type.
 pVarLower :: LlvmVar -> LlvmVar
@@ -391,7 +417,7 @@ data LlvmFunctionDecl = LlvmFunctionDecl {
         funcAlign     :: LMAlign
   }
   deriving (Eq)
-{-
+
 instance Outputable LlvmFunctionDecl where
   ppr (LlvmFunctionDecl n l c r varg p a)
     = let align = case a of
@@ -399,7 +425,7 @@ instance Outputable LlvmFunctionDecl where
                        Nothing -> empty
       in ppr l <+> ppr c <+> ppr r <+> char '@' <> ftext n <>
              lparen <> ppParams varg p <> rparen <> align
--}
+
 type LlvmFunctionDecls = [LlvmFunctionDecl]
 
 type LlvmParameter = (LlvmType, [LlvmParamAttr])

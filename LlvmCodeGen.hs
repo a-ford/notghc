@@ -27,9 +27,9 @@ import DynFlags
 import ErrUtils
 import FastString
 import Outputable
-import UniqSupply
 import Platform
-import SysTools ( figureLlvmGen )
+import UniqSupply
+import SysTools ( figureLlvmVersion )
 import qualified Stream
 
 import Control.Monad ( when )
@@ -42,11 +42,11 @@ import LLVM.General.AST
 -- -----------------------------------------------------------------------------
 -- | Top-level of the LLVM Code generator
 --
-llvmCodeGen :: DynFlags -> Handle -> UniqSupply
+llvmCodeGen :: DynFlags -> FilePath -> UniqSupply
                -> Stream.Stream IO RawCmmGroup ()
                -> IO ()
-llvmCodeGen dflags h us cmm_stream
-  = do bufh <- newBufHandle h
+llvmCodeGen dflags filenm us cmm_stream
+  = do --bufh <- newBufHandle h
 
        -- Pass header
        showPass dflags "LLVM CodeGen"
@@ -69,58 +69,33 @@ llvmCodeGen dflags h us cmm_stream
                           $+$ text "We will try though...")
 
        -- run code generation
-       runLlvm dflags ver bufh us $
+       runLlvm dflags ver filenm us $
          llvmCodeGen' (targetPlatform dflags) (liftStream cmm_stream)
 
-       -- write bitcode to file
-       --writeBitcodeToFile filenm m
-
-       bFlush bufh
+       --bFlush bufh
 
 llvmCodeGen' :: Platform -> Stream.Stream LlvmM RawCmmGroup () -> LlvmM ()
-llvmCodeGen' platform cmm_stream = do
-  -- Preamble
-  -- Set the data layout and target
-  let dl = Just $ platformToDataLayout platform
-  let tt = Just $ platformToTargetTriple platform
-  modifyModule (\mod -> mod {moduleDataLayout = dl,
-                             moduleTargetTriple = tt})
-  ghcInternalFunctions
-  cmmMetaLlvmPrelude
-
-  -- Procedures
-  let llvmStream = Stream.mapM llvmGroupLlvmGens cmm_stream
-  _ <- Stream.collect llvmStream
-
-  -- Declare aliases for forward references
-  aliases <- generateAliases
-  let defs = outputLlvmData aliases
-  outputLlvm defs
-
-  -- Postamble
-  cmmUsedLlvmGens
-
-{-      m   <- newModule
-        dl  <- newCString (platformToDataLayoutString platform)
-        tgt <- newCString (platformToTargetString platform)
-        LFC.setDataLayout m dl
-        LFC.setTarget m tgt
--}
-{-      -- Preamble
-        renderLlvm pprLlvmHeader -- i.e. data layout plus target triple
+llvmCodeGen' platform cmm_stream
+  = do  -- Preamble
+        -- Set the data layout and target
+        let dl = Just $ platformToDataLayout platform
+        let tt = Just $ platformToTargetTriple platform
+        modifyModule (\mod -> mod {moduleDataLayout = dl,
+                                   moduleTargetTriple = tt})
         ghcInternalFunctions
         cmmMetaLlvmPrelude
 
         -- Procedures
-        let llvmStream = Stream.mapM llvmGroupLlvmGens cmm_stream -- :: Stream LlvmM () () 
-        _ <- Stream.collect llvmStream  -- Stream.collect turns a stream into a regular list
-                                        -- :: LlvmM [()]
+        let llvmStream = Stream.mapM llvmGroupLlvmGens cmm_stream
+        _ <- Stream.collect llvmStream
+
         -- Declare aliases for forward references
-        renderLlvm . pprLlvmData =<< generateAliases
+        aliases <- generateAliases
+        let defs = outputLlvmData aliases
+        outputLlvm defs
 
         -- Postamble
         cmmUsedLlvmGens
--}
 
 llvmGroupLlvmGens :: RawCmmGroup -> LlvmM ()
 llvmGroupLlvmGens cmm = do
@@ -160,7 +135,7 @@ cmmDataLlvmGens statics
        outputLlvm $ outputLlvmData (concat gss, concat tss)
 
 -- | Complete LLVM code generation phase for a single top-level chunk of Cmm.
-cmmLlvmGen ::RawCmmDecl -> LlvmM ()
+cmmLlvmGen :: RawCmmDecl -> LlvmM ()
 cmmLlvmGen cmm@CmmProc{} = do
 
     -- rewrite assignments to global regs

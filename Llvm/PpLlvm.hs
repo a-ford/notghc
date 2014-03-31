@@ -5,19 +5,19 @@
 module Llvm.PpLlvm (
 
     -- * Top level LLVM objects.
-    ppLlvmGenModule,
-    ppLlvmGenComments,
-    ppLlvmGenComment,
-    ppLlvmGenGlobals,
-    ppLlvmGenGlobal,
-    ppLlvmGenAliases,
-    ppLlvmGenAlias,
-    ppLlvmGenMetas,
-    ppLlvmGenMeta,
-    ppLlvmGenFunctionDecls,
-    ppLlvmGenFunctionDecl,
-    ppLlvmGenFunctions,
-    ppLlvmGenFunction,
+    ppLlvmModule,
+    ppLlvmComments,
+    ppLlvmComment,
+    ppLlvmGlobals,
+    ppLlvmGlobal,
+    ppLlvmAliases,
+    ppLlvmAlias,
+    ppLlvmMetas,
+    ppLlvmMeta,
+    ppLlvmFunctionDecls,
+    ppLlvmFunctionDecl,
+    ppLlvmFunctions,
+    ppLlvmFunction,
 
     ) where
 
@@ -344,7 +344,11 @@ ppStore val dst
 
 
 ppCast :: LlvmCastOp -> LlvmVar -> LlvmType -> SDoc
-ppCast op from to = ppr op <+> ppr from <+> text "to" <+> ppr to
+ppCast op from to 
+    =   ppr op 
+    <+> ppr (getVarType from) <+> ppName from
+    <+> text "to" 
+    <+> ppr to
 
 
 ppMalloc :: LlvmType -> Int -> SDoc

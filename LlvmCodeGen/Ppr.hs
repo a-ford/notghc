@@ -20,6 +20,7 @@ import FastString
 import Outputable
 import Unique
 
+
 -- ----------------------------------------------------------------------------
 -- * Top level
 --
@@ -60,6 +61,9 @@ moduleLayout = sdocWithPlatform $ \platform ->
     Platform { platformArch = ArchARM {}, platformOS = OSiOS } ->
         text "target datalayout = \"e-p:32:32:32-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-f32:32:32-f64:64:64-v64:64:64-v128:64:128-a0:0:64-n32\""
         $+$ text "target triple = \"arm-apple-darwin10\""
+    Platform { platformArch = ArchX86, platformOS = OSiOS } ->
+        text "target datalayout = \"e-p:32:32:32-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:32:64-f32:32:32-f64:32:64-v64:64:64-v128:128:128-a0:0:64-f80:128:128-n8:16:32\""
+        $+$ text "target triple = \"i386-apple-darwin11\""
     _ ->
         -- FIX: Other targets
         empty
@@ -103,7 +107,6 @@ pprLlvmCmmDecl count (CmmProc mb_info entry_lbl live (ListGraph blks))
        return (idoc $+$ ppLlvmFunction fun, ivar)
 
 
-
 -- | Pretty print CmmStatic
 pprInfoTable :: Int -> CLabel -> CmmStatics -> LlvmM (SDoc, [LlvmVar])
 pprInfoTable count info_lbl stat
@@ -134,7 +137,7 @@ iTableSuf = "_itable"
 
 -- | Create a specially crafted section declaration that encodes the order this
 -- section should be in the final object code.
--- 
+--
 -- The LlvmMangler.llvmFixupAsm pass over the assembly produced by LLVM uses
 -- this section declaration to do its processing.
 mkLayoutSection :: Int -> LMSection
@@ -146,4 +149,3 @@ mkLayoutSection n
 -- be unique since we process the assembly pattern matching this.
 infoSection :: String
 infoSection = "X98A__STRIP,__me"
-

@@ -16,6 +16,7 @@ import LlvmCodeGen.Data
 import CLabel
 import Cmm
 
+import DynFlags
 import FastString
 import Unique
 
@@ -28,14 +29,14 @@ import LLVM.General.AST
 outputLlvmData :: LlvmData -> [Definition]
 outputLlvmData (globals, types) =
     let outputLlvmTys (LMAlias    a) = outputLlvmAlias a
-        outputLlvmTys (LMFunction f) = undefined -- this should be defined
-        outputLlvmTys _other         = undefined
+        outputLlvmTys (LMFunction f) = outputLlvmFunctionDecl f -- is this right?
+        outputLlvmTys _other         = error "outputLlvmData"
 
         types'   = map outputLlvmTys types
         globals' = outputLlvmGlobals globals
     in types' ++ globals'
 
--- | Pretty print LLVM code
+-- | Output LLVM code
 outputLlvmCmmDecl :: Int -> LlvmCmmDecl -> LlvmM ([Definition], [LlvmVar])
 outputLlvmCmmDecl _ (CmmData _ lmdata)
   = return (concat $ map outputLlvmData lmdata, [])
@@ -45,7 +46,6 @@ outputLlvmCmmDecl count (CmmProc mb_info entry_lbl live (ListGraph blks))
                         Nothing -> return ([], [])
                         Just (Statics info_lbl dat)
                          -> outputInfoTable count info_lbl (Statics entry_lbl dat)
-
        let sec = mkLayoutSection (count + 1)
            (lbl',sec') = case mb_info of
                            Nothing                   -> (entry_lbl, Nothing)

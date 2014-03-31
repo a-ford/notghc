@@ -200,7 +200,8 @@ genCall (PrimTarget (MO_UF_Conv _)) [_] args =
     "Can only handle 1, given" ++ show (length args) ++ "."
 
 -- Handle prefetching data
-genCall t@(PrimTarget MO_Prefetch_Data) [] args = do
+genCall t@(PrimTarget (MO_Prefetch_Data localityInt)) [] args
+  | 0 <= localityInt && localityInt <= 3 = do
     ver <- getLlvmVer
     let argTy | ver <= 29  = [i8Ptr, i32, i32]
               | otherwise  = [i8Ptr, i32, i32, i32]
@@ -214,37 +215,19 @@ genCall t@(PrimTarget MO_Prefetch_Data) [] args = do
     (argVars', stmts3)      <- castVars $ zip argVars argTy
 
     trash <- getTrashStmts
-    let argSuffix | ver <= 29  = [mkIntLit i32 0, mkIntLit i32 3]
-                  | otherwise  = [mkIntLit i32 0, mkIntLit i32 3, mkIntLit i32 1]
+    let argSuffix | ver <= 29  = [mkIntLit i32 0, mkIntLit i32 localityInt]
+                  | otherwise  = [mkIntLit i32 0, mkIntLit i32 localityInt, mkIntLit i32 1]
         call = Expr $ Call StdCall fptr (argVars' ++ argSuffix) []
         stmts = stmts1 `appOL` stmts2 `appOL` stmts3
                 `appOL` trash `snocOL` call
     return (stmts, top1 ++ top2)
+  | otherwise = panic $ "prefetch locality level integer must be between 0 and 3, given: " ++ (show localityInt)
 
--- Handle popcnt function specifically since GHC only really has i32 and i64
--- types and things like Word8 are backed by an i32 and just present a logical
--- i8 range. So we must handle conversions from i32 to i8 explicitly as LLVM
--- is strict about types.
-genCall t@(PrimTarget op@(MO_PopCnt w)) [dst] args = do
-    let width = widthToLlvmInt w
-        dstTy = cmmToLlvmType $ localRegType dst
-
-    fname                       <- cmmPrimOpFunctions op
-    (fptr, _, top3)             <- getInstrinct fname width [width]
-
-    dstV                        <- getCmmReg (CmmLocal dst)
-
-    let (_, arg_hints) = foreignTargetHints t
-    let args_hints = zip args arg_hints
-    (argsV, stmts2, top2)       <- arg_vars args_hints ([], nilOL, [])
-    (argsV', stmts4)            <- castVars $ zip argsV [width]
-    (retV, s1)                  <- doExpr width $ Call StdCall fptr argsV' []
-    ([retV'], stmts5)           <- castVars [(retV,dstTy)]
-    let s2                       = Store retV' dstV
-
-    let stmts = stmts2 `appOL` stmts4 `snocOL`
-                s1 `appOL` stmts5 `snocOL` s2
-    return (stmts, top2 ++ top3)
+-- Handle PopCnt and BSwap that need to only convert arg and return types
+genCall t@(PrimTarget (MO_PopCnt w)) dsts args =
+    genCallSimpleCast w t dsts args
+genCall t@(PrimTarget (MO_BSwap w)) dsts args =
+    genCallSimpleCast w t dsts args
 
 -- Handle memcpy function specifically since llvm's intrinsic version takes
 -- some extra parameters.
@@ -315,6 +298,7 @@ genCall target res args = do
                  CCallConv    -> CC_Ccc
                  CApiConv     -> CC_Ccc
                  PrimCallConv -> panic "LlvmCodeGen.CodeGen.genCall: PrimCallConv"
+                 JavaScriptCallConv -> panic "LlvmCodeGen.CodeGen.genCall: JavaScriptCallConv"
 
             PrimTarget   _ -> CC_Ccc
 
@@ -390,9 +374,36 @@ genCall target res args = do
                     return (allStmts `snocOL` s2 `snocOL` s3
                                 `appOL` retStmt, top1 ++ top2)
 
+-- Handle simple function call that only need simple type casting, of the form:
+--   truncate arg >>= \a -> call(a) >>= zext
+--
+-- since GHC only really has i32 and i64 types and things like Word8 are backed
+-- by an i32 and just present a logical i8 range. So we must handle conversions
+-- from i32 to i8 explicitly as LLVM is strict about types.
+genCallSimpleCast :: Width -> ForeignTarget -> [CmmFormal] -> [CmmActual]
+              -> LlvmM StmtData
+genCallSimpleCast w t@(PrimTarget op) [dst] args = do
+    let width = widthToLlvmInt w
+        dstTy = cmmToLlvmType $ localRegType dst
 
--- genCallSimpleCast _ _ _ dsts _ =
---    panic ("genCallSimpleCast: " ++ show (length dsts) ++ " dsts")
+    fname                       <- cmmPrimOpFunctions op
+    (fptr, _, top3)             <- getInstrinct fname width [width]
+
+    dstV                        <- getCmmReg (CmmLocal dst)
+
+    let (_, arg_hints) = foreignTargetHints t
+    let args_hints = zip args arg_hints
+    (argsV, stmts2, top2)       <- arg_vars args_hints ([], nilOL, [])
+    (argsV', stmts4)            <- castVars $ zip argsV [width]
+    (retV, s1)                  <- doExpr width $ Call StdCall fptr argsV' []
+    ([retV'], stmts5)           <- castVars [(retV,dstTy)]
+    let s2                       = Store retV' dstV
+
+    let stmts = stmts2 `appOL` stmts4 `snocOL`
+                s1 `appOL` stmts5 `snocOL` s2
+    return (stmts, top2 ++ top3)
+genCallSimpleCast _ _ dsts _ =
+    panic ("genCallSimpleCast: " ++ show (length dsts) ++ " dsts")
 
 -- | Create a function pointer from a target.
 getFunPtr :: (LMString -> LlvmType) -> ForeignTarget
@@ -534,8 +545,10 @@ cmmPrimOpFunctions mop = do
     MO_Memset     -> fsLit $ "llvm.memset."  ++ intrinTy2
 
     (MO_PopCnt w) -> fsLit $ "llvm.ctpop."  ++ showSDoc dflags (ppr $ widthToLlvmInt w)
+    (MO_BSwap w)  -> fsLit $ "llvm.bswap."  ++ showSDoc dflags (ppr $ widthToLlvmInt w)
 
-    MO_Prefetch_Data -> fsLit "llvm.prefetch"
+    (MO_Prefetch_Data _ )-> fsLit "llvm.prefetch"
+
 
     MO_S_QuotRem {}  -> unsupported
     MO_U_QuotRem {}  -> unsupported
@@ -957,6 +970,9 @@ genMachOp _ op [x] = case op of
 
     MO_VS_Quot    _ _ -> panicOp
     MO_VS_Rem     _ _ -> panicOp
+
+    MO_VU_Quot    _ _ -> panicOp
+    MO_VU_Rem     _ _ -> panicOp
  
     MO_VF_Insert  _ _ -> panicOp
     MO_VF_Extract _ _ -> panicOp
@@ -997,7 +1013,7 @@ genMachOp _ op [x] = case op of
                  w | w > toWidth -> sameConv' reduce
                  _w              -> return x'
         
-        panicOp = panic $ "LLVM.CodeGen.genMachOp: non unary op encourntered"
+        panicOp = panic $ "LLVM.CodeGen.genMachOp: non unary op encountered"
                        ++ "with one argument! (" ++ show op ++ ")"
 
 -- Handle GlobalRegs pointers
@@ -1130,6 +1146,9 @@ genMachOp_slow opt op [x, y] = case op of
 
     MO_VS_Quot l w -> genCastBinMach (LMVector l (widthToLlvmInt w)) LM_MO_SDiv
     MO_VS_Rem  l w -> genCastBinMach (LMVector l (widthToLlvmInt w)) LM_MO_SRem
+
+    MO_VU_Quot l w -> genCastBinMach (LMVector l (widthToLlvmInt w)) LM_MO_UDiv
+    MO_VU_Rem  l w -> genCastBinMach (LMVector l (widthToLlvmInt w)) LM_MO_URem
  
     MO_VF_Add  l w -> genCastBinMach (LMVector l (widthToLlvmFloat w)) LM_MO_FAdd
     MO_VF_Sub  l w -> genCastBinMach (LMVector l (widthToLlvmFloat w)) LM_MO_FSub
@@ -1242,7 +1261,7 @@ genMachOp_slow opt op [x, y] = case op of
                 else
                     panic $ "isSMulOK: Not bit type! (" ++ showSDoc dflags (ppr word) ++ ")"
 
-        panicOp = panic $ "LLVM.CodeGen.genMachOp_slow: unary op encourntered"
+        panicOp = panic $ "LLVM.CodeGen.genMachOp_slow: unary op encountered"
                        ++ "with two arguments! (" ++ show op ++ ")"
 
 -- More then two expression, invalid!
@@ -1372,6 +1391,8 @@ getCmmRegVal reg =
       dflags <- getDynFlags
       if onStack then loadFromStack else do
         let r = lmGlobalRegArg dflags g
+--
+-- error $ "getCmmRegVal: " ++ show g
         return (r, getVarType r, nilOL)
     _ -> loadFromStack
  where loadFromStack = do
@@ -1497,12 +1518,15 @@ funPrologue live cmmBlocks = do
         return stmts
       CmmGlobal r -> do
         let reg   = lmGlobalRegVar dflags r
+-- Error here ? Seems unlikely...
             arg   = lmGlobalRegArg dflags r
+--error $ "funPrologue: " ++ show r
             ty    = (pLower . getVarType) reg
             trash = LMLitVar $ LMUndefLit ty
             rval  = if isLive r then arg else trash
             alloc = Assignment reg $ Alloca (pLower $ getVarType reg) 1
         markStackReg r
+        -- stores generated here can reference undefined locals
         return $ toOL [alloc, Store rval reg]
 
   return (concatOL stmtss, [])
@@ -1517,6 +1541,8 @@ funEpilogue live = do
         isSSE (FloatReg _)  = True
         isSSE (DoubleReg _) = True
         isSSE (XmmReg _)    = True
+        isSSE (YmmReg _)    = True
+        isSSE (ZmmReg _)    = True
         isSSE _             = False
 
     -- Set to value or "undef" depending on whether the register is

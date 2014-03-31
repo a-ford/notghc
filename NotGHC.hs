@@ -1,7 +1,8 @@
-module NotGHC where
+{-# LANGUAGE NamedFieldPuns #-}
+module Main where
 
 import GHC
---import GHC.Paths  -- we need this to get the lib dir of GHC
+import GHC.Paths  -- we need this to get the lib dir of GHC
 import DynFlags
 import Hooks
 import Outputable
@@ -43,7 +44,7 @@ main = do
   let infiles = filterHsFiles args0
   (args1, _warns) <- parseStaticFlags (map noLoc args0)
   defaultErrorHandler defaultFatalMessager defaultFlushOut $ do
-    runGhc (Just "/home/alex/ghc-head/inplace/lib/") $ do
+    runGhc (Just libdir) $ do
       dflags0 <- getSessionDynFlags
       (dflags1, _leftover, _warns) <- parseDynamicFlags dflags0 args1
       -- Hook in the new LLVM back end
@@ -108,6 +109,16 @@ hscGenHardCode' hsc_env cgguts mod_summary output_filename = do
                foreign_stubs dependencies rawcmms1
         return (output_filename, stub_c_exists)
 
+hscPostBackendPhase' :: DynFlags -> HscSource -> HscTarget -> Phase
+hscPostBackendPhase' _ HsBootFile _    =  StopLn
+hscPostBackendPhase' dflags _ hsc_lang =
+  case hsc_lang of
+        HscC -> HCc
+        HscAsm | gopt Opt_SplitObjs dflags -> Splitter
+               | otherwise                 -> As
+        HscLlvm        -> LlvmMangle -- We compile in the HscOut phase
+        HscNothing     -> StopLn
+        HscInterpreted -> StopLn
 
 -- For the HscOut compilation phase, run the custom LLVM backend.
 newRunPhaseHook :: PhasePlus -> FilePath -> DynFlags -> CompPipeline (PhasePlus, FilePath)
@@ -117,7 +128,7 @@ newRunPhaseHook (HscOut src_flavour mod_name result) _ dflags = do
 
         let o_file = ml_obj_file location -- The real object file
             hsc_lang = hscTarget dflags
-            next_phase = hscPostBackendPhase dflags src_flavour hsc_lang
+            next_phase = hscPostBackendPhase' dflags src_flavour hsc_lang
 
         case result of
             HscNotGeneratingCode ->
@@ -137,6 +148,8 @@ newRunPhaseHook (HscOut src_flavour mod_name result) _ dflags = do
             HscRecomp cgguts mod_summary
               -> do output_fn <- phaseOutputFilename next_phase
 
+                    liftIO $ debugTraceMsg dflags 0 (text output_fn)
+
                     PipeState{hsc_env=hsc_env'} <- getPipeState
 
                     (outputFilename, mStub) <- liftIO $ hscGenHardCode' hsc_env' cgguts mod_summary output_fn
@@ -148,6 +161,14 @@ newRunPhaseHook (HscOut src_flavour mod_name result) _ dflags = do
 
                     return (RealPhase next_phase, outputFilename)
 
+{-
+-- We should bypass every stage after generating object code
+newRunPhaseHook (RealPhase LlvmOpt) input dflags = P (\env state -> return (state, (RealPhase LlvmLlc, "")))
+newRunPhaseHook (RealPhase LlvmLlc) input dflags = P (\env state -> return (state, (RealPhase LlvmMangle, "")))
+-- may need this
+newRunPhaseHook (RealPhase LlvmMangle) input dflags = P (\env state -> return (state, (RealPhase As, "")))
+newRunPhaseHook (RealPhase As) input dflags = P (\env state -> return (state, (RealPhase StopLn, "")))
+-}
 --newRunPhaseHook (RealPhase Cmm) input dflags =
 --    do liftIO $ debugTraceMsg dflags 0 (ppr (RealPhase Cmm))
 --       case hscTarget dflags of
@@ -163,7 +184,7 @@ compileCmmToBc :: FilePath -> DynFlags -> CompPipeline (PhasePlus, FilePath)
 compileCmmToBc input_fn dflags
   = do
       let hsc_lang = hscTarget dflags
-      let next_phase = hscPostBackendPhase dflags HsSrcFile hsc_lang
+      let next_phase = hscPostBackendPhase' dflags HsSrcFile hsc_lang
       output_fn <- phaseOutputFilename next_phase
       PipeState{hsc_env} <- getPipeState
       liftIO $ compileCmmFile hsc_env input_fn output_fn
@@ -194,7 +215,7 @@ codeOutput' :: DynFlags
            -> ForeignStubs
            -> [PackageId]
            -> Stream.Stream IO RawCmmGroup ()                       -- Compiled C--
-           -> IO (FilePath,
+           -> IO (FilePath, -- output filename
                   (Bool{-stub_h_exists-}, Maybe FilePath{-stub_c_exists-}))
 codeOutput' dflags this_mod filenm location foreign_stubs pkg_deps cmm_stream
   =
@@ -244,7 +265,9 @@ doOutput filenm io_action = bracket (openFile filenm WriteMode) hClose io_action
 outputLlvm' :: DynFlags -> FilePath -> Stream.Stream IO RawCmmGroup () -> IO ()
 outputLlvm' dflags filenm cmm_stream
   = do ncg_uniqs <- mkSplitUniqSupply 'n'
-
+       llvmCodeGen dflags filenm ncg_uniqs cmm_stream
+{-
        {-# SCC "llvm_output" #-} doOutput filenm $
            \f -> {-# SCC "llvm_CodeGen" #-}
                  llvmCodeGen dflags f ncg_uniqs cmm_stream
+-}
