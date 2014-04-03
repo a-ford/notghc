@@ -263,6 +263,7 @@ runLlvm dflags ver filenm us m = do
 
     -- Some kind of problem with invalid pointers takes place in the next bit
     -- and crashes the program hard, but somehow it still produces assembly
+{-
     r <- Context.withContext                                                                    -- IO (Either String ())
            (\c ->                                                                               -- Context -> IO (Either String ())
 --             (Err.runErrorT . simplifyError) $                                                  -- IO (Either String ())
@@ -278,7 +279,31 @@ runLlvm dflags ver filenm us m = do
     case r of
       Left err -> error $ "runLlvm: Whilst outputting assembly: " ++ err
       Right _ -> return ()
---    debugTraceMsg dflags 0 (Outp.text "not dead after")
+-}
+
+    -- This next bit of code is pretty horrible, we should really make it so
+    -- that an error value can't get wrapped up in an enclosing "success" value
+    r <- Context.withContext                                         -- IO (Either String (Either String (Either String String)))
+           (\c ->                                                    -- Context -> IO (Either String (Either String (Either String String)))
+               Err.runErrorT $                                       -- IO (Either String (Either String (Either String String)))
+               Target.withDefaultTargetMachine                       -- ErrorT String IO (Either String (Either String String))
+                 (\tm ->                                             -- TargetMachine -> IO (Either String (Either String String))
+                    Err.runErrorT $                                  -- IO (Either String (Either String String))
+                      (General.withModuleFromAST c (envModule env')  -- ErrorT String IO (Either String String)
+                         (\mod ->                                    -- Module -> IO (Either String String)
+                           Err.runErrorT $                           -- IO (Either String String)
+                             General.moduleTargetAssembly tm mod)))) -- ErrorT String IO String
+    -- We should be able to use General.writeTargetAssemblyToFile here, but it segfaults.
+    let errfun e = error $ "runLlvm: Whilst outputting assembly: " ++ e
+    case r of
+      Left err -> errfun err
+      Right r' -> case r' of
+                    Left err -> errfun err
+                    Right r'' -> case r'' of
+                                   Left err -> errfun err
+                                   Right r''' -> writeFile filenm r'''
+    debugTraceMsg dflags 0 (Outp.text "not dead after")
+    return ()
     where env = LlvmEnv { envFunMap = emptyUFM
                         , envVarMap = emptyUFM
                         , envStackRegs = []

@@ -175,6 +175,11 @@ newRunPhaseHook (RealPhase As) input dflags = P (\env state -> return (state, (R
 --         HscLlvm -> compileCmmToBc input dflags
 --         _       -> runPhase (RealPhase Cmm) input dflags
 
+newRunPhaseHook (RealPhase As) input dflags =
+    do liftIO $ debugTraceMsg dflags 0 (ppr (RealPhase As))
+       _ <- liftIO $ getLine -- Breakpoint so I can manually hack at the asm
+       runPhase (RealPhase As) input dflags
+
 -- For every other stage, just let GHC handle it.
 newRunPhaseHook p input dflags =
     do liftIO $ debugTraceMsg dflags 0 (ppr p)
