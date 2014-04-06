@@ -148,7 +148,7 @@ newRunPhaseHook (HscOut src_flavour mod_name result) _ dflags = do
             HscRecomp cgguts mod_summary
               -> do output_fn <- phaseOutputFilename next_phase
 
-                    liftIO $ debugTraceMsg dflags 0 (text output_fn)
+                    liftIO $ debugTraceMsg dflags 1 (text output_fn)
 
                     PipeState{hsc_env=hsc_env'} <- getPipeState
 
@@ -174,15 +174,16 @@ newRunPhaseHook (RealPhase As) input dflags = P (\env state -> return (state, (R
 --       case hscTarget dflags of
 --         HscLlvm -> compileCmmToBc input dflags
 --         _       -> runPhase (RealPhase Cmm) input dflags
-
+{-
 newRunPhaseHook (RealPhase As) input dflags =
     do liftIO $ debugTraceMsg dflags 0 (ppr (RealPhase As))
        _ <- liftIO $ getLine -- Breakpoint so I can manually hack at the asm
        runPhase (RealPhase As) input dflags
+-}
 
 -- For every other stage, just let GHC handle it.
 newRunPhaseHook p input dflags =
-    do liftIO $ debugTraceMsg dflags 0 (ppr p)
+    do liftIO $ debugTraceMsg dflags 1 (ppr p)
        runPhase p input dflags
 
 compileCmmToBc :: FilePath -> DynFlags -> CompPipeline (PhasePlus, FilePath)

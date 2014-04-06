@@ -60,17 +60,28 @@ outputLlvmGlobal (LMGlobal var@(LMGlobalVar name ty link sec ali con) dat) =
         ty' = case dat of
                  Just stat -> llvmTypeToType (getStatType stat)
                  Nothing   -> llvmTypeToType (pLower ty)
+        name' = llvmVarToName var
+        link' = llvmLinkageTypeToLinkage link
     in
-      GlobalDefinition
-      (globalVariableDefaults {
-         G.name = llvmVarToName var, --
-         G.linkage = llvmLinkageTypeToLinkage link, --
-         G.isConstant = (con == Constant), --
-         G.type' = ty',
-         G.initializer = init, --
-         G.section = section, --
-         G.alignment = alignment --
-       })
+      if con == Alias then
+          GlobalDefinition
+          (globalAliasDefaults {
+               G.name = name',
+               G.linkage = link',
+               G.type' = ty',
+               G.aliasee = fromJust init
+           })
+      else
+          GlobalDefinition
+          (globalVariableDefaults {
+             G.name = llvmVarToName var, --
+             G.linkage = llvmLinkageTypeToLinkage link, --
+             G.isConstant = (con == Constant), --
+             G.type' = ty',
+             G.initializer = init, --
+             G.section = section, --
+             G.alignment = alignment --
+           })
 
     -- where varGlobal = llvmVarToGlobal var
     --       const = dat >>= (Just . llvmStaticToConstant)
