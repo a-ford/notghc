@@ -113,7 +113,7 @@ outputLlvmMeta  (MetaNamed n m) = NamedMetadataDefinition (unpackFS n) (map (Met
 outputLlvmMetaExpr :: MetaExpr -> Operand
 outputLlvmMetaExpr = metaExprToOperand
 
--- | Create a "unique" name from a parameter and function name
+-- Create a "unique" name from a parameter and function name
 -- Make params showable, then stitch together the function name, param
 -- (e.g. type and attrs), position in param list. Hopefully enough
 -- identifying info for uniqueness, at least within a module.
@@ -191,13 +191,12 @@ head' _ = error "Fatal error in head'"
 -- | Output out an LLVM block.
 -- It must be part of a function definition.
 -- BasicBlocks need '[Named Instruction]' and 'Named Terminator' type args,
--- hence the 'Do's. Not sure here with 'Do' vs. 'Name :='.
+-- hence the 'Do's.
 outputLlvmBlock :: LlvmBlock -> BasicBlock
 outputLlvmBlock  (LlvmBlock blockId stmts) =
     BasicBlock name instrs (head' terminator)
         where
           name = Name (show blockId)
---UnName (fromIntegral (getKey blockId))
           -- terminator had better be a singleton list here
           (instrs, terminator) = partitionEithers (map (outputLlvmStatement ) stmts)
 
@@ -265,7 +264,8 @@ outputMetaExpr  meta expr =
       Malloc     tp amount        -> outputMalloc tp amount meta
       AbsSyn.Phi tp precessors    -> outputPhi  tp precessors meta
 --      Asm        asm c ty v se sk -> outputAsm asm c ty v se sk
-      Asm        asm c ty v se sk -> error "assembly unimplemented" -- Undefined temporarily, need to sort out types
+      Asm        asm c ty v se sk ->
+          error "assembly unimplemented" -- Undefined because of typing problems.
       MExpr      meta e           -> outputMetaExpr  meta e
 
 --------------------------------------------------------------------------------
@@ -274,9 +274,10 @@ outputMetaExpr  meta expr =
 
 -- | Should always be a function pointer. So a global var of function type
 -- (since globals are always pointers) or a local var of pointer function type.
-outputCall :: LlvmCallType -> LlvmVar -> [MetaExpr] -> [LlvmFuncAttr] -> [MetaAnnot] -> Named Instruction
-outputCall  ct fptr args attrs metas = case fptr of
-                           --
+outputCall :: LlvmCallType -> LlvmVar -> [MetaExpr] -> [LlvmFuncAttr] ->
+              [MetaAnnot] -> Named Instruction
+outputCall  ct fptr args attrs metas =
+  case fptr of
     -- if local var function pointer, unwrap
     LMLocalVar _ (LMPointer (LMFunction d)) -> ppCall' d
 
@@ -335,9 +336,7 @@ outputLlvmMachOp  op left right metas =
           LM_MO_Or   -> Or left' right' metas'
           LM_MO_Xor  -> Xor left' right' metas')
                 where left' = llvmVarToOperand  left
--- varErr "outputLlvmMachOp: " "left" left
                       right' = llvmVarToOperand  right
--- varErr "outputLlvmMachOp: " "right" right
                       metas' = outputMetaAnnots  metas
 
 
@@ -345,17 +344,16 @@ outputCmpOp :: LlvmCmpOp -> LlvmVar -> LlvmVar -> [MetaAnnot] -> Named Instructi
 outputCmpOp  op left right metas =
     let
         left' = llvmVarToOperand  left
-        -- varErr "outputCmmOp" "left" left
         right' = llvmVarToOperand  right
         lty = getVarType left
         rty = getVarType right
-        -- varErr "outputCmmOp" "right" right
         metas' = outputMetaAnnots  metas
-    in if isInt lty && isInt rty 
+    in if isInt lty && isInt rty
        then Do $ ICmp ((fromJust . llvmCmpOpToIntegerPredicate) op) left' right' metas'
        else if isFloat lty && isFloat rty
             then Do $ FCmp ((fromJust . llvmCmpOpToFloatingPointPredicate) op) left' right' metas'
-            else error $ "outputCmpOp: Cannot compare incomparable types " ++ show lty ++ ", " ++ show rty
+            else error $
+                     "outputCmpOp: Cannot compare incomparable types " ++ show lty ++ ", " ++ show rty
 
 outputAssignment :: LlvmVar -> LlvmExpression -> [MetaAnnot] -> Named Instruction
 outputAssignment  var expr metas =
@@ -393,7 +391,6 @@ outputLoad  var metas
   where
     isVecPtrVar = isVector . pLower . getVarType
     op = llvmVarToOperand  var
--- varErr "outputLoad" "var" var
     metas' = outputMetaAnnots  metas
 
 outputStore :: LlvmVar -> LlvmVar -> [MetaAnnot] -> Named Instruction
@@ -405,11 +402,7 @@ outputStore  val dst metas
     isVecPtrVar :: LlvmVar -> Bool
     isVecPtrVar = isVector . pLower . getVarType
     dstOp = llvmVarToOperand  dst
---varErr "outputStore" "dst" dst
--- 
     valOp = llvmVarToOperand  val
---varErr "outputStore" "val" val
--- 
     metas' = outputMetaAnnots  metas
 
 outputCast :: LlvmCastOp -> LlvmVar -> LlvmType -> [MetaAnnot] -> Named Instruction
@@ -450,17 +443,12 @@ outputAlloca  ty amount metas = Do $ AST.Alloca ty' (Just numElems) 0 metas'
 outputGetElementPtr :: Bool -> LlvmVar -> [LlvmVar] -> [MetaAnnot] -> Named Instruction
 outputGetElementPtr  inb ptr idx metas = Do $ GetElementPtr inb ptr' idx' metas'
     where ptr' = llvmVarToOperand  ptr
---varErr "outputGetElementPtr" "ptr" ptr
           idx' = map (llvmVarToOperand ) idx
---error $ "outputGetElementPtr: " ++ show idx
           metas' = outputMetaAnnots  metas
 
 outputReturn :: Maybe LlvmVar -> [MetaAnnot] -> Named Terminator
 outputReturn  var metas = Do $ Ret var' metas'
-    where var' = case var of
-                   Nothing -> Nothing
-                   (Just var'') -> varErr "outputReturn" "var" var''
---(Just . llvmVarToOperand) =<< var
+    where var' = (Just . llvmVarToOperand) =<< var
           metas' = outputMetaAnnots  metas
 
 -- Unconditional branch to target
@@ -472,14 +460,12 @@ outputBranch  var metas = Do $ Br name metas'
 outputBranchIf :: LlvmVar -> LlvmVar -> LlvmVar -> [MetaAnnot] -> Named Terminator
 outputBranchIf  cond trueT falseT metas = Do $ CondBr cond' trueT' falseT' metas'
     where cond' = llvmVarToOperand  cond
--- varErr "outputBranchIf" "cond" cond
           trueT' = llvmVarToName trueT
           falseT' = llvmVarToName falseT
           metas' = outputMetaAnnots  metas
 
 outputPhi :: LlvmType -> [(LlvmVar,LlvmVar)] -> [MetaAnnot] -> Named Instruction
-outputPhi  ty preds metas = error $ "outputPhi: " ++ "errStr " ++ errStr
---Do $ AST.Phi ty' preds' metas'
+outputPhi  ty preds metas = Do $ AST.Phi ty' preds' metas'
     where ty' = llvmTypeToType ty
           preds' = map (\(op,name) -> (llvmVarToOperand  op, llvmVarToName name)) preds
           errStr = concat $ map (\(op,name) -> show op) preds
@@ -487,8 +473,7 @@ outputPhi  ty preds metas = error $ "outputPhi: " ++ "errStr " ++ errStr
 
 outputSwitch :: LlvmVar -> LlvmVar -> [(LlvmVar,LlvmVar)] -> [MetaAnnot] -> Named Terminator
 outputSwitch  op dflt targets metas = Do $ AST.Switch op' dflt' targets' metas'
-    where op' = varErr "outputSwitch" "op" op
---llvmVarToOperand op
+    where op' = llvmVarToOperand op
           dflt' = llvmVarToName dflt
           targets' = map (\(con, name) -> (llvmVarToConstant con, llvmVarToName name)) targets
           metas' = outputMetaAnnots  metas
@@ -507,21 +492,16 @@ outputAsm asm constraints rty vars sideeffect alignstack =
 -- Get a value from a vector
 outputExtract :: LlvmVar -> LlvmVar -> [MetaAnnot] -> Named Instruction
 outputExtract  vec idx metas = Do $ ExtractElement vec' idx' metas'
-    where vec' = varErr "outputExtract" "vec" vec
--- llvmVarToOperand vec
-          idx' = varErr "outputExtract" "idx" idx
--- llvmVarToOperand idx
+    where vec' = llvmVarToOperand vec
+          idx' = llvmVarToOperand idx
           metas' = outputMetaAnnots  metas
 
 -- Insert a value into a vector
 outputInsert :: LlvmVar -> LlvmVar -> LlvmVar -> [MetaAnnot] -> Named Instruction
 outputInsert  vec elt idx metas = Do $ InsertElement vec' elt' idx' metas'
-    where vec' = varErr "outputInsert" "vec" vec
--- llvmVarToOperand vec
-          elt' = varErr "outputInsert" "elt" elt
--- llvmVarToOperand elt
-          idx' = varErr "outputInsert" "idx" idx
--- llvmVarToOperand idx
+    where vec' = llvmVarToOperand vec
+          elt' = llvmVarToOperand elt
+          idx' = llvmVarToOperand idx
           metas' = outputMetaAnnots  metas
 
 outputMetaAnnots :: [MetaAnnot] -> InstructionMetadata
