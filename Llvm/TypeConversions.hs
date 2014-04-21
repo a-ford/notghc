@@ -46,14 +46,14 @@ llvmLinkageTypeToLinkage link =
       Types.Weak -> L.Weak
       Types.Appending -> L.Appending
       Types.ExternWeak -> L.ExternWeak
-      -- external is the default which ExternallyDefault should translate to,
+      -- external is the default which ExternallyVisible should translate to,
       -- but there is no explicit default value in llvm-general
       Types.ExternallyVisible -> L.External
       Types.External -> L.External
       Types.Private -> L.Private
 
 llvmVarToGlobal :: LlvmVar -> Bool -> G.Global
-llvmVarToGlobal var@(LMGlobalVar str ty link sec ali con) alias =
+llvmVarToGlobal (LMGlobalVar str ty link sec align con) alias =
     let name = mkName str
         linkage = llvmLinkageTypeToLinkage link
         visibility = V.Default
@@ -91,9 +91,7 @@ floatToSomeFloat d ty =
       Types.LMFloat    -> F.Single (narrowFp d)
       Types.LMDouble   -> F.Double d
       -- These are unimplemented, but aren't generated in the first place.
-      -- X86_FP80 {- need to split into a 16 and 64 bit word -}
       Types.LMFloat80  -> error "TypeConversions: X86 specific 80 bit floats not implemented."
-      -- Quadruple {- need to split into two 64 bit words -}
       Types.LMFloat128 -> error "TypeConversions: 128 bit floats not implemented."
       t          -> error $ "Not an floating type: " ++ show t
 
@@ -110,10 +108,11 @@ llvmTypeToType ty =
       Types.LMVector len typ -> VectorType (fromIntegral len) (llvmTypeToType ty)
       Types.LMLabel -> error "undefined error"
       Types.LMVoid -> VoidType
-      Types.LMStruct tys -> StructureType True (map llvmTypeToType tys) -- packed
+      Types.LMStruct tys -> StructureType True (map llvmTypeToType tys) -- packed=True
       Types.LMAlias ali -> NamedTypeReference (Name ((unpackFS . fst) ali))
       Types.LMMetadata -> MetadataType
-      Types.LMFunction decl@(LlvmFunctionDecl name link cc ty vArgs params ali) -> FunctionType (llvmTypeToType ty) (map (llvmTypeToType . fst) params) (vArgs == VarArgs)
+      Types.LMFunction (LlvmFunctionDecl _ _ _ ty vArgs params _) ->
+          FunctionType (llvmTypeToType ty) (map (llvmTypeToType . fst) params) (vArgs == VarArgs)
 
 llvmStaticToConstant :: LlvmStatic -> C.Constant
 llvmStaticToConstant stat =
@@ -121,19 +120,26 @@ llvmStaticToConstant stat =
       Types.LMComment str -> error "llvmStaticToConstant: comments unimplemented"
       Types.LMStaticLit lit -> llvmLitToConstant lit
       Types.LMUninitType ty -> C.Undef (llvmTypeToType ty)
-      Types.LMStaticStr str ty -> error "llvmStaticToConstant: No conversion defined for LMStaticStr"
+      Types.LMStaticStr str ty ->
+          error "llvmStaticToConstant: No conversion defined for LMStaticStr"
       -- The type here is of the array, not of its elements.
       -- Therefore we must get the type of the elements.
-      Types.LMStaticArray stats ty -> C.Array (llvmTypeToType (getElemType ty)) (map llvmStaticToConstant stats)
-      Types.LMStaticStruc stats ty -> C.Struct Nothing True (map llvmStaticToConstant stats) -- packed
-      -- Sticking in a pVarLower here made absolutely no difference (???)
-      Types.LMStaticPointer var -> llvmVarToConstant var -- very questionable
+      Types.LMStaticArray stats ty ->
+          C.Array (llvmTypeToType (getElemType ty)) (map llvmStaticToConstant stats)
+      Types.LMStaticStruc stats ty ->
+          C.Struct Nothing True (map llvmStaticToConstant stats) -- packed=True
+      Types.LMStaticPointer var -> llvmVarToConstant var -- Questionable
 
       -- static expressions
-      Types.LMBitc stat ty -> C.BitCast (llvmStaticToConstant stat) (llvmTypeToType ty)
-      Types.LMPtoI stat ty -> C.PtrToInt (llvmStaticToConstant stat) (llvmTypeToType ty)
-      Types.LMAdd statL statR -> C.Add False False (llvmStaticToConstant statL) (llvmStaticToConstant statR) -- bools are for no (un)signed wrap
-      Types.LMSub statL statR -> C.Sub False False (llvmStaticToConstant statL) (llvmStaticToConstant statR) -- bools are for no (un)signed wrap
+      Types.LMBitc stat ty ->
+          C.BitCast (llvmStaticToConstant stat) (llvmTypeToType ty)
+      Types.LMPtoI stat ty ->
+          C.PtrToInt (llvmStaticToConstant stat) (llvmTypeToType ty)
+      -- bools in LMAdd and LMSub represent no (un)signed wrap flag
+      Types.LMAdd statL statR ->
+          C.Add False False (llvmStaticToConstant statL) (llvmStaticToConstant statR)
+      Types.LMSub statL statR ->
+          C.Sub False False (llvmStaticToConstant statL) (llvmStaticToConstant statR)
 
 llvmCallConventionToCallingConvention :: LlvmCallConvention -> CC.CallingConvention
 llvmCallConventionToCallingConvention conv =
@@ -210,15 +216,10 @@ llvmCmpOpToFloatingPointPredicate op =
 
 
 llvmVarToOperand :: LlvmVar -> O.Operand
-llvmVarToOperand v@(LMGlobalVar str ty link sec ali con) = ConstantOperand (C.GlobalReference (llvmVarToName v))
--- (mkName str))
--- Hashing a Unique technically doesn't guarantee a unique Int, but we won't get
--- any collisions until 2^32 or 2^64 calls.
+llvmVarToOperand v@(LMGlobalVar str ty link sec ali con) =
+    ConstantOperand (C.GlobalReference (llvmVarToName v))
 llvmVarToOperand v@(LMLocalVar uniq ty) = LocalReference (llvmVarToName v)
---((UnName . fromIntegral . getKey) uniq)
---error $ "llvmVarToOperand " ++ (show uniq)
 llvmVarToOperand v@(LMNLocalVar str ty) = LocalReference (llvmVarToName v)
--- error $ "llvmVarToOperand " ++ (unpackFS str)
 llvmVarToOperand v@(LMLitVar lit) = ConstantOperand (llvmStaticToConstant (LMStaticLit lit))
 
 llvmParameterToNamedParameter :: LlvmParameter -> Either String Word -> AST.Parameter
@@ -228,15 +229,15 @@ llvmParameterToNamedParameter (ty, attrs) name =
               ty' = llvmTypeToType ty
               name' = either Name UnName name
 
--- Can we get rid of the IO here? (not without more context to assign unique names)
--- Doesn't matter, we can use the context we have when converting parameters
--- to just call llvmParameterToNamedParameter directly.
+-- Shouldn't need to use this, we can use the context we have when converting
+-- parameters to just call llvmParameterToNamedParameter directly.
 llvmParameterToParameter :: LlvmParameter -> IO AST.Parameter
 llvmParameterToParameter param =
     do us <- mkSplitUniqSupply 'k'
        let name = uniqFromSupply us
        return (llvmParameterToNamedParameter param (Right (fromIntegral (getKey name))))
 
+-- Big, untidy function. Could be made more general and sucinct.
 platformToDataLayout :: Platform -> DL.DataLayout
 platformToDataLayout platform =
     case platform of
@@ -500,81 +501,6 @@ platformToDataLayout platform =
       _ ->
           DL.defaultDataLayout
 
-{-
-split :: (Char -> Bool) -> String -> [String]
-split f xs = split' f "" [] xs
-    where split' f w ws [] = w:ws
-          split' f w ws (x:xs) | f x = split' f "" (w:ws) xs
-                               | otherwise = split' f (w++"x") ws xs
-
--- Note, this function does not work for data layout strings in general,
--- only the ones of the exact form defined above.
--- It's a horrible function as it is, making it work generally would make it
--- even uglier.
-dlStringToDataLayout :: String -> DL.DataLayout
-dlStringToDataLayout dl =
-    let ws = split (== '-') dl
-        endianness = case (ws!!0) of
-                       "e" -> Just DL.LittleEndian
-                       "E" -> Just DL.BigEndian
-                       -- throw an error here, even though the dl may be correct in some format
-                       _   -> error "dlStringToDataLayout: Could not parse."
-        stackAlignment = Nothing -- default stack alignment
-        pointerLayouts =
-            let ints = (map read (split (== ':') (drop 2 (ws!!1)))) in
-            Map.fromList [(AS.AddrSpace 0, (ints!!0, DL.AlignmentInfo (ints!!1) (Just (ints!!2))))]
-        -- get strings that describe a type layout
-        tlStrings = filter (\(t:ss) -> t == 'i' || t == 'f' || t == 'v' || t == 'a') ws
-        tlStrToTlPair (t:ss) =
-            let ints = (map read (split (== ':') ss)) in
-            case t of
-              'i' -> ((DL.IntegerAlign, (ints!!0)), DL.AlignmentInfo (ints!!1) (Just (ints!!2)))
-              'f' -> ((DL.FloatAlign, (ints!!0)), DL.AlignmentInfo (ints!!1) (Just (ints!!2)))
-              'v' -> ((DL.VectorAlign, (ints!!0)), DL.AlignmentInfo (ints!!1) (Just (ints!!2)))
-              'a' -> ((DL.AggregateAlign, (ints!!0)), DL.AlignmentInfo (ints!!1) (Just (ints!!2)))
-              _   -> error "dlStringToDataLayout: Could not parse."
-        typeLayouts = Map.fromList (map tlStrToTlPair tlStrings)
-        nsString = head (filter (\(t:ss) -> t == 'n') ws)
-        nativeSizes = Just (Set.fromList (map read (drop 2 (split (== ':') nsString))))
-    in
-      DL.DataLayout { DL.endianness = endianness,
-                      DL.stackAlignment = stackAlignment,
-                      DL.pointerLayouts = pointerLayouts,
-                      DL.typeLayouts = typeLayouts,
-                      DL.nativeSizes = nativeSizes }
-
-
--- | LLVM data layout description for the host target
-dataLayout :: Platform -> String
-dataLayout platform =
-    case platform of
-    Platform { platformArch = ArchX86, platformOS = OSDarwin } ->
-        "e-p:32:32:32-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:32:64-f32:32:32-f64:32:64-v64:64:64-v128:128:128-a0:0:64-f80:128:128-n8:16:32"
-    Platform { platformArch = ArchX86, platformOS = OSMinGW32 } ->
-        "e-p:32:32:32-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-f32:32:32-f64:64:64-f80:128:128-v64:64:64-v128:128:128-a0:0:64-f80:32:32-n8:16:32"
-    Platform { platformArch = ArchX86, platformOS = OSLinux } ->
-        "e-p:32:32:32-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:32:64-f32:32:32-f64:32:64-v64:64:64-v128:128:128-a0:0:64-f80:32:32-n8:16:32"
-    Platform { platformArch = ArchX86_64, platformOS = OSDarwin } ->
-        "e-p:64:64:64-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-f32:32:32-f64:64:64-v64:64:64-v128:128:128-a0:0:64-s0:64:64-f80:128:128-n8:16:32:64"
-    Platform { platformArch = ArchX86_64, platformOS = OSLinux } ->
-        "e-p:64:64:64-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-f32:32:32-f64:64:64-v64:64:64-v128:128:128-a0:0:64-s0:64:64-f80:128:128-n8:16:32:64"
-    Platform { platformArch = ArchARM {}, platformOS = OSLinux } ->
-        "e-p:32:32:32-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-f32:32:32-f64:64:64-v64:64:64-v128:64:128-a0:0:64-n32"
-    Platform { platformArch = ArchARM {}, platformOS = OSAndroid } ->
-        "e-p:32:32:32-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-f32:32:32-f64:64:64-v64:64:64-v128:64:128-a0:0:64-n32"
-    Platform { platformArch = ArchARM {}, platformOS = OSQNXNTO } ->
-        "e-p:32:32:32-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-f32:32:32-f64:64:64-v64:64:64-v128:64:128-a0:0:64-n32"
-    Platform { platformArch = ArchARM {}, platformOS = OSiOS } ->
-        "e-p:32:32:32-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-f32:32:32-f64:64:64-v64:64:64-v128:64:128-a0:0:64-n32"
-    Platform { platformArch = ArchX86, platformOS = OSiOS } ->
-        "e-p:32:32:32-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:32:64-f32:32:32-f64:32:64-v64:64:64-v128:128:128-a0:0:64-f80:128:128-n8:16:32"
-    _ ->
-        ""
-
-platformToDataLayout :: Platform -> DL.DataLayout
-platformToDataLayout = dlStringToDataLayout . dataLayout
--}
-
 platformToTargetTriple :: Platform -> String
 platformToTargetTriple platform =
     case platform of
@@ -599,8 +525,7 @@ platformToTargetTriple platform =
     _ ->
         ""
 
---FIXME
-
+--FIXME. Unused at present, default target machine is used.
 platformToTargetMachine :: Platform -> IO T.Target
 platformToTargetMachine platform =
     do T.initializeAllTargets --must call this before lookupTarget
@@ -617,14 +542,14 @@ llvmVarToName (LMNLocalVar name ty) = Name (unpackFS name)
 llvmVarToName _ = error "llvmVarToName: not a valid name"
 
 
-
 llvmVarToConstant :: LlvmVar -> C.Constant
-llvmVarToConstant v@(LMGlobalVar name ty link sec ali con) = C.GlobalReference (llvmVarToName v)
---error (unpackFS name)
-llvmVarToConstant v@(LMLocalVar uniq ty) = error "llvmVarToConstant: Undefined for LMLocalVar"
-llvmVarToConstant v@(LMNLocalVar str ty) = error "llvmVarToConstant: Undefined for LMNLocalVar"
+llvmVarToConstant v@(LMGlobalVar name ty link sec ali con) =
+    C.GlobalReference (llvmVarToName v)
+llvmVarToConstant v@(LMLocalVar uniq ty) =
+    error "llvmVarToConstant: Undefined for LMLocalVar"
+llvmVarToConstant v@(LMNLocalVar str ty) =
+    error "llvmVarToConstant: Undefined for LMNLocalVar"
 llvmVarToConstant v@(LMLitVar lit) = llvmLitToConstant lit
--- error "llvmVarToConstant: Undefined for LMLitVar"
 
 mkName :: LMString -> AST.Name
 mkName = Name . unpackFS
@@ -747,20 +672,6 @@ metaExprToOperand (MetaVar    v ) = llvmVarToOperand v
 --    MetadataNodeOperand (MetadataNode [Just (llvmVarToOperand v)])
 metaExprToOperand (MetaStruct es) =
     MetadataNodeOperand (MetadataNode $ map (Just . metaExprToOperand) es)
-
-
-
---     case v of
---       LMGlobalVar name LMMetadata link sec ali con ->
---           ConstantOperand (llvmVarToConstant v)
---       LMLocalVar uniq LMMetadata -> error $ "metaExprToOperand " ++ (show uniq)
--- -- LocalReference (llvmVarToName v)
---       LMNLocalVar str LMMetadata -> error $ "metaExprToOperand " ++ (unpackFS str)
--- --          LocalReference (llvmVarToName v)
---       LMLitVar lit ->
---           ConstantOperand (llvmLitToConstant lit)
---       _ -> MetadataNodeOperand (MetadataNode [Just (llvmVarToOperand v)])
--- --error $ "metaExprToOperand: variable " ++ show v ++ " is not of type LMMetadata"
 
 -- Returns the width in bits of an integer type.
 llvmIntWidth :: LlvmType -> Int
