@@ -53,7 +53,7 @@ llvmLinkageTypeToLinkage link =
       Types.Private -> L.Private
 
 llvmVarToGlobal :: LlvmVar -> Bool -> G.Global
-llvmVarToGlobal (LMGlobalVar str ty link sec align con) alias =
+llvmVarToGlobal (LMGlobalVar str ty link sec ali con) alias =
     let name = mkName str
         linkage = llvmLinkageTypeToLinkage link
         visibility = V.Default
