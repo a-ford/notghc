@@ -16,7 +16,7 @@ cabal-version:       >=1.8
 
 executable notghc
   Extensions:          CPP
---  GHC-Options:         -cpp -package ghc
+  GHC-Options:         -fllvm
   main-is:             NotGHC.hs
   -- other-modules:       
-  build-depends:       base ==4.7.*, bytestring ==0.10.*, llvm-general-pure ==3.4.*, llvm-general ==3.4.*, mtl ==2.1.*, containers ==0.5.*, ghc >= 7.7, ghc-paths
+  build-depends:       base ==4.7.*, bytestring ==0.10.*, llvm-general-pure ==3.4.*, llvm-general ==3.4.*, mtl ==2.1.*, containers ==0.5.*, ghc >= 7.7, ghc-paths, filepath
