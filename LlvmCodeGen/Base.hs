@@ -251,15 +251,31 @@ simplifyError err = err >>= (\v -> case v of
                                      Left e -> Err.ErrorT (return (Left e))
                                      Right v' -> Err.ErrorT (return v'))
 -}
+
+-- | Take a filename with extension, and replace it with the given extension
+replaceExtension :: String -> String -> String
+replaceExtension filenm ext =
+    replaceExtension' filenm False
+    where
+      ext' = '.':ext
+      replaceExtension' filenm seenExt =
+          let name = takeWhile (/= '.') filenm
+              oldext = dropWhile (/= '.') filenm
+          in
+            if null oldext then
+                if seenExt then ext
+                else name ++ ext'
+            else name++('.':(replaceExtension' (drop 1 oldext) True))
+
 -- | Get initial Llvm environment.
 runLlvm :: DynFlags -> LlvmVersion -> FilePath -> UniqSupply -> LlvmM () -> IO ()
 runLlvm dflags ver filenm us m = do
     (n, env') <- runLlvmM m env
-    debugTraceMsg dflags 1 (Outp.text (showPretty (envModule env')))
+    debugTraceMsg dflags 2 (Outp.text (showPretty (envModule env')))
 
     --targetMachine <- platformToTargetMachine (targetPlatform dflags)
 
-    debugTraceMsg dflags 0 (Outp.text "not dead before")
+    debugTraceMsg dflags 1 (Outp.text "not dead before")
 
     -- Some kind of problem with invalid pointers takes place in the next bit
     -- and crashes the program hard, but somehow it still produces assembly
@@ -279,6 +295,18 @@ runLlvm dflags ver filenm us m = do
     case r of
       Left err -> error $ "runLlvm: Whilst outputting assembly: " ++ err
       Right _ -> return ()
+-}
+-- For debugging only
+{-
+    asm <- Context.withContext
+             (\c ->
+               Err.runErrorT $ -- IO Either String ByteString
+                 (General.withModuleFromAST c (envModule env')
+                    (\mod -> General.moduleLLVMAssembly mod)))
+
+    case asm of
+      Left err -> error err
+      Right asm' -> writeFile (replaceExtension filenm "ll") asm'
 -}
 
     -- This next bit of code is pretty horrible, we should really make it so
@@ -302,7 +330,7 @@ runLlvm dflags ver filenm us m = do
                     Right r'' -> case r'' of
                                    Left err -> errfun err
                                    Right r''' -> writeFile filenm r'''
-    debugTraceMsg dflags 0 (Outp.text "not dead after")
+    debugTraceMsg dflags 1 (Outp.text "not dead after")
     return ()
     where env = LlvmEnv { envFunMap = emptyUFM
                         , envVarMap = emptyUFM

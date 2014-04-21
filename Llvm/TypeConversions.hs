@@ -49,7 +49,7 @@ llvmLinkageTypeToLinkage link =
       -- external is the default which ExternallyVisible should translate to,
       -- but there is no explicit default value in llvm-general
       Types.ExternallyVisible -> L.External
-      Types.External -> L.External
+      Types.External -> L.AvailableExternally
       Types.Private -> L.Private
 
 llvmVarToGlobal :: LlvmVar -> Bool -> G.Global
