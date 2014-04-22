@@ -165,77 +165,6 @@ hscPostBackendPhase' dflags _ hsc_lang =
         HscNothing     -> StopLn
         HscInterpreted -> StopLn
 
--- For the HscOut compilation phase, run the custom LLVM backend.
-newRunPhaseHook :: PhasePlus -> FilePath -> DynFlags -> CompPipeline (PhasePlus, FilePath)
-newRunPhaseHook (HscOut src_flavour mod_name result) _ dflags = do
---        start <- liftIO $ getCPUTime
---        let start' = (fromIntegral start) / (10^9)
---        liftIO $ debugTraceMsg dflags 0 (text (show start'))
-        location <- getLocation src_flavour mod_name
-        setModLocation location
-
-        let o_file = ml_obj_file location -- The real object file
-            hsc_lang = hscTarget dflags
-            next_phase = hscPostBackendPhase' dflags src_flavour hsc_lang
-
-        case result of
-            HscNotGeneratingCode ->
-                return (RealPhase next_phase,
-                        panic "No output filename from Hsc when no-code")
-            HscUpToDate ->
-                do liftIO $ touchObjectFile dflags o_file
-                   -- The .o file must have a later modification date
-                   -- than the source file (else we wouldn't get Nothing)
-                   -- but we touch it anyway, to keep 'make' happy (we think).
-                   return (RealPhase StopLn, o_file)
-            HscUpdateBoot ->
-                do -- In the case of hs-boot files, generate a dummy .o-boot
-                   -- stamp file for the benefit of Make
-                   liftIO $ touchObjectFile dflags o_file
-                   return (RealPhase next_phase, o_file)
-            HscRecomp cgguts mod_summary
-              -> do output_fn <- phaseOutputFilename next_phase
-
-                    liftIO $ debugTraceMsg dflags 1 (text output_fn)
-
-                    PipeState{hsc_env=hsc_env'} <- getPipeState
-
-                    (outputFilename, mStub) <- liftIO $ hscGenHardCode' hsc_env' cgguts mod_summary output_fn
-                    case mStub of
-                        Nothing -> return ()
-                        Just stub_c ->
-                            do stub_o <- liftIO $ compileStub hsc_env' stub_c
-                               setStubO stub_o
-
-                    return (RealPhase next_phase, outputFilename)
-
-{-
--- We should bypass every stage after generating object code
-newRunPhaseHook (RealPhase LlvmOpt) input dflags = P (\env state -> return (state, (RealPhase LlvmLlc, "")))
-newRunPhaseHook (RealPhase LlvmLlc) input dflags = P (\env state -> return (state, (RealPhase LlvmMangle, "")))
--- may need this
-newRunPhaseHook (RealPhase LlvmMangle) input dflags = P (\env state -> return (state, (RealPhase As, "")))
-newRunPhaseHook (RealPhase As) input dflags = P (\env state -> return (state, (RealPhase StopLn, "")))
--}
---newRunPhaseHook (RealPhase Cmm) input dflags =
---    do liftIO $ debugTraceMsg dflags 0 (ppr (RealPhase Cmm))
---       case hscTarget dflags of
---         HscLlvm -> compileCmmToBc input dflags
---         _       -> runPhase (RealPhase Cmm) input dflags
-
-newRunPhaseHook (RealPhase As) input dflags =
-    do end <- liftIO $ getCPUTime
-       let end' = (fromIntegral end) / (10^9)
-       liftIO $ debugTraceMsg dflags 0 (text (show end'))
-       liftIO $ debugTraceMsg dflags 1 (ppr (RealPhase As))
---       _ <- liftIO $ getLine -- Breakpoint so I can manually hack at the asm
-       runPhase (RealPhase As) input dflags
-
-
--- For every other stage, just let GHC handle it.
-newRunPhaseHook p input dflags =
-    do liftIO $ debugTraceMsg dflags 1 (ppr p)
-       runPhase p input dflags
 
 compileCmmToBc :: FilePath -> DynFlags -> CompPipeline (PhasePlus, FilePath)
 compileCmmToBc input_fn dflags
@@ -664,3 +593,70 @@ getOutputFilename stop_phase output basename dflags next_phase maybe_location
 
 logWarnings :: WarningMessages -> Hsc ()
 logWarnings w = HscTypes.Hsc $ \_ w0 -> return ((), w0 `unionBags` w)
+
+
+-- The new runPhase function, which we will install in NotGHC
+
+-- For the HscOut compilation phase, run the custom LLVM backend.
+newRunPhaseHook :: PhasePlus -> FilePath -> DynFlags -> CompPipeline (PhasePlus, FilePath)
+newRunPhaseHook (HscOut src_flavour mod_name result) _ dflags = do
+--        start <- liftIO $ getCPUTime
+--        let start' = (fromIntegral start) / (10^9)
+--        liftIO $ debugTraceMsg dflags 0 (text (show start'))
+        location <- getLocation src_flavour mod_name
+        setModLocation location
+
+        let o_file = ml_obj_file location -- The real object file
+            hsc_lang = hscTarget dflags
+            next_phase = hscPostBackendPhase' dflags src_flavour hsc_lang
+
+        case result of
+            HscNotGeneratingCode ->
+                return (RealPhase next_phase,
+                        panic "No output filename from Hsc when no-code")
+            HscUpToDate ->
+                do liftIO $ touchObjectFile dflags o_file
+                   -- The .o file must have a later modification date
+                   -- than the source file (else we wouldn't get Nothing)
+                   -- but we touch it anyway, to keep 'make' happy (we think).
+                   return (RealPhase StopLn, o_file)
+            HscUpdateBoot ->
+                do -- In the case of hs-boot files, generate a dummy .o-boot
+                   -- stamp file for the benefit of Make
+                   liftIO $ touchObjectFile dflags o_file
+                   return (RealPhase next_phase, o_file)
+            HscRecomp cgguts mod_summary
+              -> do output_fn <- phaseOutputFilename next_phase
+
+                    liftIO $ debugTraceMsg dflags 1 (text output_fn)
+
+                    PipeState{hsc_env=hsc_env'} <- getPipeState
+
+                    (outputFilename, mStub) <- liftIO $ hscGenHardCode' hsc_env' cgguts mod_summary output_fn
+                    case mStub of
+                        Nothing -> return ()
+                        Just stub_c ->
+                            do stub_o <- liftIO $ compileStub hsc_env' stub_c
+                               setStubO stub_o
+
+                    return (RealPhase next_phase, outputFilename)
+
+
+-- We should bypass the LlvmOpt and LlvmLlc phases
+newRunPhaseHook (RealPhase LlvmOpt) input dflags =
+    P (\env state -> return (state, (RealPhase LlvmLlc, input)))
+newRunPhaseHook (RealPhase LlvmLlc) input dflags =
+    P (\env state -> return (state, (RealPhase LlvmMangle, input)))
+
+newRunPhaseHook (RealPhase As) input dflags =
+    do end <- liftIO $ getCPUTime
+       let end' = (fromIntegral end) / (10^9)
+       liftIO $ debugTraceMsg dflags 0 (text (show end'))
+       liftIO $ debugTraceMsg dflags 1 (ppr (RealPhase As))
+       runPhase (RealPhase As) input dflags
+
+
+-- For every other stage, just let GHC handle it.
+newRunPhaseHook p input dflags =
+    do liftIO $ debugTraceMsg dflags 1 (ppr p)
+       runPhase p input dflags

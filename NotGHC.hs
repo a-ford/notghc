@@ -11,56 +11,13 @@
 
 module Main (main) where
 
--- The official GHC API, and various things we need from GHC
-import GHC
-import GHC.Paths
+-- The official GHC API
+import qualified GHC
+import GHC              ( -- DynFlags(..), HscTarget(..),
+                          -- GhcMode(..), GhcLink(..),
+                          Ghc, GhcMonad(..),
+                          LoadHowMuch(..) )
 import CmdLineParser
-import CodeOutput
-import Unique
-import UniqSupply
-import GhcMonad hiding (logWarnings)
-import PipelineMonad
-import DriverPipeline
-import DriverPhases
-import HscMain
-import HscTypes
-import qualified Stream
-import Stream (Stream)
-import Hooks
-import CodeOutput
-import TyCon
-import CorePrep
-import ProfInit
-import Bag
-import SysTools
-import CoreSyn
-import CostCentre
-import StgSyn
-import StgCmm
-import CoreToStg
-import SimplStg
-import Platform
-
-import Cmm
-import CmmLint
-import CmmInfo
-import CmmBuildInfoTables
-import CmmPipeline
-import CmmParse
-
-import HscMainMod
-import LlvmCodeGen
-
-import System.Environment
-import System.Directory
-import Data.List
-import Control.Exception.Base
-import System.IO
-
-import Text.Printf
-import Control.Exception
-import System.CPUTime
-
 
 -- Implementations of the various modes (--show-iface, mkdependHS. etc.)
 import LoadIface        ( showIface )
@@ -106,6 +63,10 @@ import Data.Char
 import Data.List
 import Data.Maybe
 
+-- imports not in the original driver program
+import GHC.Paths
+import Hooks ( runPhaseHook)
+import HscMainMod ( newRunPhaseHook )
 
 
 -----------------------------------------------------------------------------
