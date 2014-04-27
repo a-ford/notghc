@@ -105,13 +105,6 @@ outputLlvmMeta  (MetaNamed n m) = NamedMetadataDefinition (unpackFS n) (map (Met
 outputLlvmMetaExpr :: MetaExpr -> Operand
 outputLlvmMetaExpr = metaExprToOperand
 
--- Create a "unique" name from a parameter and function name
--- Make params showable, then stitch together the function name, param
--- (e.g. type and attrs), position in param list. Hopefully enough
--- identifying info for uniqueness, at least within a module.
---parameterName :: LMString -> LlvmParameter -> String
---parameterName fname (ty, attrs) = (unpackFS fname) ++ 
-
 -- | Output out a list of function definitions.
 outputLlvmFunctions :: LlvmFunctions -> [Definition]
 outputLlvmFunctions  funcs = map (outputLlvmFunction ) funcs

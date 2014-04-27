@@ -54,8 +54,8 @@ llvmLinkageTypeToLinkage link =
 --unused
 {-
 llvmVarToGlobal :: LlvmVar -> Bool -> G.Global
-llvmVarToGlobal (LMGlobalVar str ty link sec ali con) alias =
-    let name = mkName str
+llvmVarToGlobal v@(LMGlobalVar str ty link sec ali con) alias =
+    let name = llvmVarToName v
         linkage = llvmLinkageTypeToLinkage link
         visibility = V.Default
         type' = llvmTypeToType ty -- Different for alias vs "real"?
@@ -80,7 +80,6 @@ llvmVarToGlobal (LMGlobalVar str ty link sec ali con) alias =
                   G.initializer = Nothing,
                   G.section = (Just . unpackFS) =<< sec,
                   G.alignment = maybe 0 fromIntegral ali
-if ali==Nothing then 0 else (fromIntegral . fromJust) ali
                 }
 llvmVarToGlobal (LMLocalVar uniq ty) alias =
     error "llvmVarToGlobal: A (named) local variable is not global."
@@ -124,8 +123,7 @@ llvmTypeToType ty =
 llvmStaticToConstant :: LlvmStatic -> C.Constant
 llvmStaticToConstant stat =
     case stat of
-      Types.LMComment str ->
-
+      Types.LMComment str -> error "llvmStaticToConstant: No conversion available for co"
       Types.LMStaticLit lit -> llvmLitToConstant lit
       Types.LMUninitType ty -> C.Undef (llvmTypeToType ty)
       Types.LMStaticStr str ty ->
@@ -544,19 +542,18 @@ platformToTargetMachine platform =
 
 llvmVarToName ::  LlvmVar -> AST.Name
 llvmVarToName (LMGlobalVar name ty link sec ali con) = Name (unpackFS name)
-llvmVarToName (LMLocalVar uniq LMLabel) = Name (show uniq)
-llvmVarToName (LMLocalVar uniq ty) = Name ('l' : show uniq)
+llvmVarToName (LMLocalVar uniq LMLabel) = Name (showUnique uniq)
+llvmVarToName (LMLocalVar uniq ty) = Name ('l' : showUnique uniq)
 llvmVarToName (LMNLocalVar name ty) = Name (unpackFS name)
-llvmVarToName _ = error "llvmVarToName: not a valid name"
-
+llvmVarToName _ = error "llvmVarToName: no valid name possible"
 
 llvmVarToConstant :: LlvmVar -> C.Constant
-llvmVarToConstant v@(LMGlobalVar name ty link sec ali con) =
+llvmVarToConstant v@(LMGlobalVar _ _ _ _ _ _) =
     C.GlobalReference (llvmVarToName v)
-llvmVarToConstant v@(LMLocalVar uniq ty) =
-    error "llvmVarToConstant: Undefined for LMLocalVar"
-llvmVarToConstant v@(LMNLocalVar str ty) =
-    error "llvmVarToConstant: Undefined for LMNLocalVar"
+llvmVarToConstant v@(LMLocalVar _ _) =
+    error "llvmVarToConstant: Can't create a constant from an (unnamed) local var"
+llvmVarToConstant v@(LMNLocalVar _ _) =
+    error "llvmVarToConstant: Can't create a constant from a (named) local var"
 llvmVarToConstant v@(LMLitVar lit) = llvmLitToConstant lit
 
 mkName :: LMString -> AST.Name
