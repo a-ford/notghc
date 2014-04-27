@@ -28,6 +28,7 @@ import Data.Maybe
 -- * Top Level Output functions
 --------------------------------------------------------------------------------
 
+-- unused
 -- | Output out a whole LLVM module.
 outputLlvmModule :: LlvmModule -> DynFlags -> Module
 outputLlvmModule (LlvmModule comments aliases meta globals decls funcs) dflags
@@ -51,9 +52,7 @@ outputLlvmGlobals ls = map outputLlvmGlobal ls
 outputLlvmGlobal :: LMGlobal -> Definition
 outputLlvmGlobal (LMGlobal var@(LMGlobalVar name ty link sec ali con) dat) =
     let section = (Just . unpackFS) =<< sec
-        alignment = case ali of
-                      Just a' -> fromIntegral a'
-                      Nothing -> 0
+        alignment = maybe 0 fromIntegral ali
         init = case dat of
                  Just stat -> Just (llvmStaticToConstant stat)
                  Nothing   -> Just (C.Null (llvmTypeToType (pLower ty)))
@@ -74,23 +73,16 @@ outputLlvmGlobal (LMGlobal var@(LMGlobalVar name ty link sec ali con) dat) =
       else
           GlobalDefinition
           (globalVariableDefaults {
-             G.name = llvmVarToName var, --
-             G.linkage = llvmLinkageTypeToLinkage link, --
-             G.isConstant = (con == Constant), --
+             G.name = name',
+             G.linkage = link',
+             G.isConstant = (con == Constant),
              G.type' = ty',
-             G.initializer = init, --
-             G.section = section, --
-             G.alignment = alignment --
+             G.initializer = init,
+             G.section = section,
+             G.alignment = alignment
            })
-
-    -- where varGlobal = llvmVarToGlobal var
-    --       const = dat >>= (Just . llvmStaticToConstant)
-
---outputLlvmGlobal (LMGlobal var val) = sdocWithDynFlags $ \ ->
---  error $ "Non Global var output as global! "
---          ++ showSDoc  (ppr var) ++ " " ++ showSDoc  (ppr val)
-
-outputLlvmGlobal (LMGlobal var val) = error "Non Global var output as global!"
+outputLlvmGlobal (LMGlobal var val) =
+    error "outputLlvmGlobal: Non Global variable output as global."
 
 -- | Output out a list of LLVM type aliases.
 outputLlvmAliases :: [LlvmAlias] -> [Definition]
@@ -130,16 +122,11 @@ outputLlvmFunction :: LlvmFunction -> Definition
 outputLlvmFunction  (LlvmFunction dec@(LlvmFunctionDecl name link cc retTy vArgs params ali)
                                  args attrs sec body)
     =
-      let ali' = fromIntegral (if ali==Nothing then 0 else fromJust ali)
-      {- llvmParameterToNamedParameter takes an Either String Word, so we
-         need to use the Left constructor
-         To name the parameters, just throw in as much context as we can get:
-         Function name, parameter index, parameter type and attributes -}
+      let ali' = maybe 0 fromIntegral ali
           argNames = map (Left . unpackFS) args
           parameters = if null argNames then
-                           -- If we are in fact outputting a function declaration with
-                           -- no body, then we don't care about the argument names,
-                           -- just the types.
+                           -- Function declarations have no argument names,
+                           -- we only care about the types here.
                          zipWith llvmParameterToNamedParameter params (repeat (Left ""))
                        else
                          zipWith llvmParameterToNamedParameter params argNames
@@ -175,7 +162,7 @@ outputLlvmFunctionDecl  dec@(LlvmFunctionDecl n l c r varg p a)
 
 -- | Output out a list of LLVM blocks.
 outputLlvmBlocks :: LlvmBlocks -> [BasicBlock]
-outputLlvmBlocks  blocks = map (outputLlvmBlock ) blocks
+outputLlvmBlocks  blocks = map outputLlvmBlock blocks
 
 partitionEithers :: [Either a b] -> ([a], [b])
 partitionEithers [] = ([], [])
@@ -196,9 +183,9 @@ outputLlvmBlock :: LlvmBlock -> BasicBlock
 outputLlvmBlock  (LlvmBlock blockId stmts) =
     BasicBlock name instrs (head' terminator)
         where
-          name = Name (show blockId)
-          -- terminator had better be a singleton list here
-          (instrs, terminator) = partitionEithers (map (outputLlvmStatement ) stmts)
+          name = Name (showUnique blockId)
+          -- terminator had better be a singleton list here, else the block is invalid
+          (instrs, terminator) = partitionEithers (map outputLlvmStatement stmts)
 
 {-  let isLabel (MkLabel _) = True
       isLabel _           = False

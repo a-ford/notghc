@@ -51,7 +51,8 @@ llvmLinkageTypeToLinkage link =
       Types.ExternallyVisible -> L.External
       Types.External -> L.AvailableExternally
       Types.Private -> L.Private
-
+--unused
+{-
 llvmVarToGlobal :: LlvmVar -> Bool -> G.Global
 llvmVarToGlobal (LMGlobalVar str ty link sec ali con) alias =
     let name = mkName str
@@ -78,13 +79,16 @@ llvmVarToGlobal (LMGlobalVar str ty link sec ali con) alias =
                   G.type' = type',
                   G.initializer = Nothing,
                   G.section = (Just . unpackFS) =<< sec,
-                  G.alignment = if ali==Nothing then 0 else (fromIntegral . fromJust) ali
+                  G.alignment = maybe 0 fromIntegral ali
+if ali==Nothing then 0 else (fromIntegral . fromJust) ali
                 }
-llvmVarToGlobal (LMLocalVar uniq ty) alias = error "undefined error"
-llvmVarToGlobal (LMNLocalVar str ty) alias = error "undefined error"
-llvmVarToGlobal (LMLitVar lit) alias = error "undefined error"
-
-
+llvmVarToGlobal (LMLocalVar uniq ty) alias =
+    error "llvmVarToGlobal: A (named) local variable is not global."
+llvmVarToGlobal (LMNLocalVar str ty) alias =
+    error "llvmVarToGlobal: An (unnamed) local variable is not global."
+llvmVarToGlobal (LMLitVar lit) alias =
+    error "llvmVarToGlobal: A literal is not global."
+-}
 floatToSomeFloat :: Double -> LlvmType -> F.SomeFloat
 floatToSomeFloat d ty =
     case ty of
@@ -98,30 +102,34 @@ floatToSomeFloat d ty =
 llvmTypeToType :: LlvmType -> AST.Type
 llvmTypeToType ty =
     case ty of
-      Types.LMInt width -> IntegerType (fromIntegral width)
-      Types.LMFloat -> FloatingPointType 32 IEEE
-      Types.LMDouble -> FloatingPointType 64 IEEE
-      Types.LMFloat80 -> FloatingPointType 80 DoubleExtended
-      Types.LMFloat128 -> FloatingPointType 128 IEEE
-      Types.LMPointer ty -> PointerType (llvmTypeToType ty) (AS.AddrSpace 0) -- default address space
-      Types.LMArray len ty -> ArrayType (fromIntegral len) (llvmTypeToType ty)
+      Types.LMInt width      -> IntegerType (fromIntegral width)
+      Types.LMFloat          -> FloatingPointType 32 IEEE
+      Types.LMDouble         -> FloatingPointType 64 IEEE
+      Types.LMFloat80        -> FloatingPointType 80 DoubleExtended
+      Types.LMFloat128       -> FloatingPointType 128 IEEE
+      Types.LMPointer ty     ->
+          PointerType (llvmTypeToType ty) (AS.AddrSpace 0) -- default address space
+      Types.LMArray len ty   -> ArrayType (fromIntegral len) (llvmTypeToType ty)
       Types.LMVector len typ -> VectorType (fromIntegral len) (llvmTypeToType ty)
-      Types.LMLabel -> error "undefined error"
-      Types.LMVoid -> VoidType
-      Types.LMStruct tys -> StructureType True (map llvmTypeToType tys) -- packed=True
-      Types.LMAlias ali -> NamedTypeReference (Name ((unpackFS . fst) ali))
-      Types.LMMetadata -> MetadataType
+      Types.LMLabel          -> error "llvmTypeToType: Labels undefined."
+      Types.LMVoid           -> VoidType
+      Types.LMStruct tys     ->
+          StructureType True (map llvmTypeToType tys) -- packed=True
+      Types.LMAlias ali       -> NamedTypeReference (Name ((unpackFS . fst) ali))
+      Types.LMMetadata        -> MetadataType
       Types.LMFunction (LlvmFunctionDecl _ _ _ ty vArgs params _) ->
-          FunctionType (llvmTypeToType ty) (map (llvmTypeToType . fst) params) (vArgs == VarArgs)
+          let params' = (map (llvmTypeToType . fst) params)
+          in FunctionType (llvmTypeToType ty) params' (vArgs == VarArgs)
 
 llvmStaticToConstant :: LlvmStatic -> C.Constant
 llvmStaticToConstant stat =
     case stat of
-      Types.LMComment str -> error "llvmStaticToConstant: comments unimplemented"
+      Types.LMComment str ->
+
       Types.LMStaticLit lit -> llvmLitToConstant lit
       Types.LMUninitType ty -> C.Undef (llvmTypeToType ty)
       Types.LMStaticStr str ty ->
-          error "llvmStaticToConstant: No conversion defined for LMStaticStr"
+          error "llvmStaticToConstant: No conversion available for static strings."
       -- The type here is of the array, not of its elements.
       -- Therefore we must get the type of the elements.
       Types.LMStaticArray stats ty ->
@@ -598,23 +606,32 @@ llvmCastToConstant castop v ty =
     where op = llvmVarToConstant v
           ty' = llvmTypeToType ty
 
+-- unused
 llvmExpressionToConstant :: LlvmExpression -> C.Constant
 llvmExpressionToConstant expr =
     case expr of
-      AbsSyn.Alloca tp amount       -> error "undefined error"
+      AbsSyn.Alloca tp amount       ->
+          error "llvmExpressionToConstant: alloca is not a constant expression."
       LlvmOp     op left right      -> llvmOpToConstant op left right
-      AbsSyn.Call tp fp args attrs  -> error "undefined error"
-      CallM      tp fp args attrs   -> error "undefined error"
+      AbsSyn.Call tp fp args attrs  ->
+          error "llvmExpressionToConstant: a call is not a constant expression."
+      CallM      tp fp args attrs   ->
+          error "llvmExpressionToConstant: a call is not a constant expression."
       Cast       castop from to     -> llvmCastToConstant castop from to
       Compare    op left right      -> llvmCompareToConstant op left right
       Extract    vec idx            -> llvmExtractToConstant vec idx
       Insert     vec elt idx        -> llvmInsertToConstant vec elt idx
       GetElemPtr inb ptr indexes    -> llvmGetElemPtrToConstant inb ptr indexes
-      AbsSyn.Load ptr               -> error "undefined error"
-      Malloc     tp amount          -> error "undefined error"
-      AbsSyn.Phi tp precessors      -> error "undefined error"
-      Asm        asm c ty v se sk   -> error "undefined error"
-      MExpr      meta e             -> error "undefined error"
+      AbsSyn.Load ptr               ->
+          error "llvmExpressionToConstant: a load is not a constant expression."
+      Malloc     tp amount          ->
+          error "llvmExpressionToConstant: malloc is not a constant expression."
+      AbsSyn.Phi tp precessors      ->
+          error "llvmExpressionToConstant: phi is not a constant expression."
+      Asm        asm c ty v se sk   ->
+          error "llvmExpressionToConstant: Assembly is not a constant expression."
+      MExpr      meta e             ->
+          error "llvmExpressionToConstant: a meta expris not a constant expression."
 
 llvmCompareToConstant :: LlvmCmpOp -> LlvmVar -> LlvmVar -> C.Constant
 llvmCompareToConstant op left right =
