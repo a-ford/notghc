@@ -159,7 +159,7 @@ outputLlvmFunctionDeclBase dec@(LlvmFunctionDecl name link cc retTy vArgs params
                G.returnType = llvmTypeToType retTy,
                G.name = mkName name,
                G.parameters = (parameters, vArgs == VarArgs),
-               G.alignment = ali',
+               G.alignment = ali'
              }
 
 -- | Output out a list of LLVM blocks.
