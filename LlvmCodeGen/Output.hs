@@ -58,7 +58,7 @@ outputLlvmCmmDecl count (CmmProc mb_info entry_lbl live (ListGraph blks))
 
        fun <- mkLlvmFunc live lbl' link  sec' lmblocks
 
-       return ((outputLlvmFunction fun):idoc, ivar)
+       return (idoc ++ [outputLlvmFunction fun], ivar)
 
 -- | Output CmmStatic
 outputInfoTable :: Int -> CLabel -> CmmStatics -> LlvmM ([Definition], [LlvmVar])

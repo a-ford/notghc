@@ -542,8 +542,8 @@ platformToTargetMachine platform =
 
 llvmVarToName ::  LlvmVar -> AST.Name
 llvmVarToName (LMGlobalVar name ty link sec ali con) = Name (unpackFS name)
-llvmVarToName (LMLocalVar uniq LMLabel) = Name (showUnique uniq)
-llvmVarToName (LMLocalVar uniq ty) = Name ('l' : showUnique uniq)
+llvmVarToName (LMLocalVar uniq LMLabel) = Name (show uniq)
+llvmVarToName (LMLocalVar uniq ty) = Name ('l' : show uniq)
 llvmVarToName (LMNLocalVar name ty) = Name (unpackFS name)
 llvmVarToName _ = error "llvmVarToName: no valid name possible"
 

@@ -107,51 +107,60 @@ outputLlvmMetaExpr = metaExprToOperand
 
 -- | Output out a list of function definitions.
 outputLlvmFunctions :: LlvmFunctions -> [Definition]
-outputLlvmFunctions  funcs = map (outputLlvmFunction ) funcs
+outputLlvmFunctions  funcs = map outputLlvmFunction funcs
 
 -- | Output out a function definition.
 -- body = [LlvmBlock] = [LlvmBlock {LlvmBlockId [LlvmStatement]}]
 outputLlvmFunction :: LlvmFunction -> Definition
-outputLlvmFunction  (LlvmFunction dec@(LlvmFunctionDecl name link cc retTy vArgs params ali)
-                                 args attrs sec body)
+outputLlvmFunction  (LlvmFunction
+                       dec@(LlvmFunctionDecl name link cc retTy vArgs params ali)
+                       args attrs sec body)
     =
-      let ali' = maybe 0 fromIntegral ali
+      let baseDecl = outputLlvmFunctionDeclBase dec
           argNames = map (Left . unpackFS) args
           parameters = if null argNames then
                            -- Function declarations have no argument names,
                            -- we only care about the types here.
                          zipWith llvmParameterToNamedParameter params (repeat (Left ""))
-                       else
-                         zipWith llvmParameterToNamedParameter params argNames
-      in GlobalDefinition functionDefaults {
-               G.linkage = llvmLinkageTypeToLinkage link,
-               G.callingConvention = llvmCallConventionToCallingConvention cc,
-               G.returnType = llvmTypeToType retTy,
-               G.name = mkName name,
+                       else if (length argNames) == (length params)
+                            then zipWith llvmParameterToNamedParameter params argNames
+                            else
+                                error $ "outputLlvmFunction: Number of args does" ++
+                                        " not match argument type signatures."
+      in GlobalDefinition $
+           baseDecl {
                G.parameters = (parameters, vArgs == VarArgs),
                G.functionAttributes = map llvmFuncAttrToFunctionAttribute attrs,
                G.section = (Just . unpackFS) =<< sec,
-               G.alignment = ali',
-               G.basicBlocks = outputLlvmBlocks  body
+               G.basicBlocks = outputLlvmBlocks body
              }
-
-{-
--- | Output out a function defenition header.
---outputLlvmFunctionHeader :: LlvmFunctionDecl -> [LMString] -> 
-outputLlvmFunctionHeader (LlvmFunctionDecl n l c r varg p a) args
-  = undefined 
--}
 
 -- | Output out a list of function declaration.
 outputLlvmFunctionDecls :: LlvmFunctionDecls -> [Definition]
-outputLlvmFunctionDecls  decs = map (outputLlvmFunctionDecl ) decs
+outputLlvmFunctionDecls  decs = map outputLlvmFunctionDecl decs
 
 -- | Output out a function declaration.
 -- Declarations define the function type but don't define the actual body of
 -- the function.
 outputLlvmFunctionDecl :: LlvmFunctionDecl -> Definition
-outputLlvmFunctionDecl  dec@(LlvmFunctionDecl n l c r varg p a)
-  = outputLlvmFunction  (LlvmFunction dec [] [] Nothing [])
+outputLlvmFunctionDecl dec = GlobalDefinition (outputLlvmFunctionDeclBase dec)
+
+-- | Output a function declaration, but don't wrap it as a Definition
+outputLlvmFunctionDeclBase :: LlvmFunctionDecl -> Global
+outputLlvmFunctionDeclBase dec@(LlvmFunctionDecl name link cc retTy vArgs params ali)
+    =
+      let ali' = maybe 0 fromIntegral ali
+          -- Function declarations have no argument names,
+          -- we only care about the types here.
+          parameters = zipWith llvmParameterToNamedParameter params (repeat (Left ""))
+      in functionDefaults {
+               G.linkage = llvmLinkageTypeToLinkage link,
+               G.callingConvention = llvmCallConventionToCallingConvention cc,
+               G.returnType = llvmTypeToType retTy,
+               G.name = mkName name,
+               G.parameters = (parameters, vArgs == VarArgs),
+               G.alignment = ali',
+             }
 
 -- | Output out a list of LLVM blocks.
 outputLlvmBlocks :: LlvmBlocks -> [BasicBlock]
@@ -176,7 +185,7 @@ outputLlvmBlock :: LlvmBlock -> BasicBlock
 outputLlvmBlock  (LlvmBlock blockId stmts) =
     BasicBlock name instrs (head' terminator)
         where
-          name = Name (showUnique blockId)
+          name = Name (show blockId)
           -- terminator had better be a singleton list here, else the block is invalid
           (instrs, terminator) = partitionEithers (map outputLlvmStatement stmts)
 
@@ -202,51 +211,50 @@ outputLlvmStatement  stmt =
     _                         -> outputMetaStatement  [] stmt
 
 -- | Output an LLVM statement with metadata annotations.
--- | By making instructions and terminators named, we may should be able to do assignments.
+-- | By making instructions and terminators named, we are able to do assignments.
 outputMetaStatement :: [MetaAnnot] -> LlvmStatement -> Either (Named Instruction) (Named Terminator)
 outputMetaStatement  meta stmt =
     case stmt of
-      Assignment  dst expr      -> Left $ outputAssignment  dst expr meta    -- Instruction (Broken?)
-      AbsSyn.Fence st ord       -> Left $ outputFence  st ord meta           -- Instruction
-      Branch      target        -> Right $ outputBranch  target meta         -- Terminator
-      BranchIf    cond ifT ifF  -> Right $ outputBranchIf  cond ifT ifF meta -- Terminator
-      Comment     comments      -> error "comments unimplemented"           -- No need(?)
-      MkLabel     label         -> error "labels unimplemented"
---Left $ outputLlvmBlockLabel label
-      AbsSyn.Store value ptr    -> Left $ outputStore  value ptr meta        -- Instruction
-      AbsSyn.Switch scrut def tgs -> Right $ outputSwitch  scrut def tgs meta  -- Terminator
-      Return      result        -> Right $ outputReturn  result meta         -- Terminator
-      Expr        expr          -> Left $ outputMetaExpr  meta expr          -- Instruction
-      AbsSyn.Unreachable        -> Right $ Do (AST.Unreachable (outputMetaAnnots  meta)) -- Terminator
+      Assignment  dst expr      -> Left $ outputAssignment dst expr meta    -- I
+      AbsSyn.Fence st ord       -> Left $ outputFence st ord meta           -- I
+      Branch      target        -> Right $ outputBranch target meta         -- T
+      BranchIf    cond ifT ifF  -> Right $ outputBranchIf cond ifT ifF meta -- T
+      Comment     comments      ->
+          error "outputMetaStatement: Can't generate comments." -- We don't need comments
+      MkLabel     label         ->
+          error "outputMetaStatement: Can't generate comments." -- We don't need labels either
+      AbsSyn.Store value ptr    -> Left $ outputStore value ptr meta        -- I
+      AbsSyn.Switch scrut def tgs -> Right $ outputSwitch scrut def tgs meta  -- T
+      Return      result        -> Right $ outputReturn result meta         -- T
+      Expr        expr          -> Left $ outputMetaExpr meta expr          -- I
+      AbsSyn.Unreachable        -> Right $ Do (AST.Unreachable (outputMetaAnnots  meta)) -- T
       Nop                       -> error "NOP generated as a statement"
-      MetaStmt    meta s        -> outputMetaStatement  meta s
+      MetaStmt    meta s        -> outputMetaStatement meta s
 
 -- | Output an LLVM expression.
 outputLlvmExpression :: LlvmExpression -> Named Instruction
 outputLlvmExpression  expr
   = case expr of
-      MExpr      meta e           -> outputMetaExpr  meta e
-      _                           -> outputMetaExpr  [] expr
+      MExpr      meta e           -> outputMetaExpr meta e
+      _                           -> outputMetaExpr [] expr
 
 outputMetaExpr :: [MetaAnnot] -> LlvmExpression -> Named Instruction
 outputMetaExpr  meta expr =
     case expr of
-      AbsSyn.Alloca tp amount        -> outputAlloca  tp amount meta
-      LlvmOp        op left right    -> outputLlvmMachOp  op left right meta
-      AbsSyn.Call   tp fp args attrs -> outputCall  tp fp (map MetaVar args) attrs meta
-      CallM         tp fp args attrs -> outputCall  tp fp args attrs meta
-      Cast       op from to       -> outputCast  op from to meta
-      Compare    op left right    -> outputCmpOp  op left right meta
-      Extract    vec idx          -> outputExtract  vec idx meta
-      Insert     vec elt idx      -> outputInsert  vec elt idx meta
-      GetElemPtr inb ptr indexes  -> outputGetElementPtr  inb ptr indexes meta
-      AbsSyn.Load       ptr       -> outputLoad  ptr meta
-      Malloc     tp amount        -> outputMalloc tp amount meta
-      AbsSyn.Phi tp precessors    -> outputPhi  tp precessors meta
---      Asm        asm c ty v se sk -> outputAsm asm c ty v se sk
-      Asm        asm c ty v se sk ->
-          error "assembly unimplemented" -- Undefined because of typing problems.
-      MExpr      meta e           -> outputMetaExpr  meta e
+      AbsSyn.Alloca tp amount        -> outputAlloca tp amount meta
+      LlvmOp        op left right    -> outputLlvmMachOp op left right meta
+      AbsSyn.Call   tp fp args attrs -> outputCall tp fp (map MetaVar args) attrs meta
+      CallM         tp fp args attrs -> outputCall tp fp args attrs meta
+      Cast          op from to       -> outputCast op from to meta
+      Compare       op left right    -> outputCmpOp op left right meta
+      Extract       vec idx          -> outputExtract vec idx meta
+      Insert        vec elt idx      -> outputInsert vec elt idx meta
+      GetElemPtr    inb ptr indexes  -> outputGetElementPtr inb ptr indexes meta
+      AbsSyn.Load   ptr              -> outputLoad ptr meta
+      Malloc        tp amount        -> outputMalloc tp amount meta
+      AbsSyn.Phi    tp precessors    -> outputPhi tp precessors meta
+      Asm           asm c ty v se sk -> error "outputMetaExpr: Assembly not used"
+      MExpr         meta e           -> outputMetaExpr meta e
 
 --------------------------------------------------------------------------------
 -- * Individual print functions
@@ -279,7 +287,6 @@ outputCall  ct fptr args attrs metas =
                 cc' = llvmCallConventionToCallingConvention cc
                 args' = map outputLlvmMetaExpr args
                 pattrs = map (map llvmParamAttrToParameterAttribute . snd) params
-                fnty = llvmTypeToType
                 attrs' = map llvmFuncAttrToFunctionAttribute attrs
                 metas' = outputMetaAnnots metas
             in  Do $ AST.Call { isTailCall = tc,
