@@ -1,6 +1,9 @@
 {-# OPTIONS -fno-warn-incomplete-patterns -optc-DNON_POSIX_SOURCE #-}
 {-# LANGUAGE ForeignFunctionInterface, NamedFieldPuns, PatternGuards #-}
 
+
+-- THIS IS A COPY OF THE GHC DRIVER PROGRAM
+-- The only modification is the insertion of the RunPhaseHook
 -----------------------------------------------------------------------------
 --
 -- GHC Driver program
@@ -161,7 +164,8 @@ main' postLoadMode dflags0 args flagWarnings = do
       dflags2 = dflags1{ ghcMode   = mode,
                          hscTarget = lang,
                          ghcLink   = link,
-                         hooks = (hooks dflags1) {runPhaseHook = Just newRunPhaseHook},
+                         hooks = (hooks dflags1) {
+                                   runPhaseHook = Just newRunPhaseHook},
                          verbosity = case postLoadMode of
                                          DoEval _ -> 0
                                          _other   -> 1
@@ -178,7 +182,8 @@ main' postLoadMode dflags0 args flagWarnings = do
 
         -- The rest of the arguments are "dynamic"
         -- Leftover ones are presumably files
-  (dflags4, fileish_args, dynamicFlagWarnings) <- GHC.parseDynamicFlags dflags3 args
+  (dflags4, fileish_args, dynamicFlagWarnings) <-
+      GHC.parseDynamicFlags dflags3 args
 
   GHC.prettyPrintGhcErrors dflags4 $ do
 
@@ -293,7 +298,8 @@ looks_like_an_input m =  isSourceFilename m
 -- | Ensure sanity of options.
 --
 -- Throws 'UsageError' or 'CmdLineError' if not.
-checkOptions :: PostLoadMode -> DynFlags -> [(String,Maybe Phase)] -> [String] -> IO ()
+checkOptions ::  PostLoadMode -> DynFlags ->
+                 [(String,Maybe Phase)] -> [String] -> IO ()
      -- Final sanity checking before kicking off a compilation (pipeline).
 checkOptions mode dflags srcs objs = do
      -- Complain about any unknown flags
@@ -302,7 +308,8 @@ checkOptions mode dflags srcs objs = do
 
    when (notNull (filter wayRTSOnly (ways dflags))
          && isInterpretiveMode mode) $
-        hPutStrLn stderr ("Warning: -debug, -threaded and -ticky are ignored by GHCi")
+        hPutStrLn stderr
+              ("Warning: -debug, -threaded and -ticky are ignored by GHCi")
 
         -- -prof and --interactive are not a good combination
    when ((filter (not . wayRTSOnly) (ways dflags) /= interpWays)
@@ -312,19 +319,24 @@ checkOptions mode dflags srcs objs = do
         -- -ohi sanity check
    if (isJust (outputHi dflags) &&
       (isCompManagerMode mode || srcs `lengthExceeds` 1))
-        then throwGhcException (UsageError "-ohi can only be used when compiling a single source file")
+        then throwGhcException
+               (UsageError "-ohi can only be used when compiling a" ++
+                               " single source file")
         else do
 
         -- -o sanity checking
    if (srcs `lengthExceeds` 1 && isJust (outputFile dflags)
          && not (isLinkMode mode))
-        then throwGhcException (UsageError "can't apply -o to multiple source files")
+        then throwGhcException
+                 (UsageError "can't apply -o to multiple source files")
         else do
 
    let not_linking = not (isLinkMode mode) || isNoLink (ghcLink dflags)
 
    when (not_linking && not (null objs)) $
-        hPutStrLn stderr ("Warning: the following files would be used as linker inputs, but linking is not being done: " ++ unwords objs)
+        hPutStrLn stderr ("Warning: the following files would be used as" ++
+                          " linker inputs, but linking is not being done: " ++
+                          unwords objs)
 
         -- Check that there are some input files
         -- (except in the interactive case)
@@ -376,9 +388,10 @@ data PreStartupMode
   | ShowSupportedExtensions -- ghc --supported-extensions
   | ShowOptions             -- ghc --show-options
 
-showVersionMode, showNumVersionMode, showSupportedExtensionsMode, showOptionsMode :: Mode
+showVersionMode, showNumVersionMode :: Mode
 showVersionMode             = mkPreStartupMode ShowVersion
 showNumVersionMode          = mkPreStartupMode ShowNumVersion
+showSupportedExtensionsMode, showOptionsMode :: Mode
 showSupportedExtensionsMode = mkPreStartupMode ShowSupportedExtensions
 showOptionsMode             = mkPreStartupMode ShowOptions
 
@@ -525,8 +538,10 @@ mode_flags =
   , Flag "-numeric-version"      (PassFlag (setMode showNumVersionMode))
   , Flag "-info"                 (PassFlag (setMode showInfoMode))
   , Flag "-show-options"         (PassFlag (setMode showOptionsMode))
-  , Flag "-supported-languages"  (PassFlag (setMode showSupportedExtensionsMode))
-  , Flag "-supported-extensions" (PassFlag (setMode showSupportedExtensionsMode))
+  , Flag "-supported-languages"
+             (PassFlag (setMode showSupportedExtensionsMode))
+  , Flag "-supported-extensions"
+             (PassFlag (setMode showSupportedExtensionsMode))
   ] ++
   [ Flag k'                      (PassFlag (setMode (printSetting k)))
   | k <- ["Project version",
@@ -705,8 +720,8 @@ showOptions = putStr (unlines availableOptions)
       availableOptions     = map ((:) '-') $
                              getFlagNames mode_flags   ++
                              getFlagNames flagsDynamic ++
-                             (filterUnwantedStatic . getFlagNames $ flagsStatic) ++
-                             flagsStaticNames
+                             (filterUnwantedStatic . getFlagNames $ flagsStatic)
+                             ++ flagsStaticNames
       getFlagNames opts         = map getFlagName opts
       getFlagName (Flag name _) = name
       -- this is a hack to get rid of two unwanted entries that get listed
@@ -820,7 +835,7 @@ unknownFlagsErr fs = throwGhcException $ UsageError $ concatMap oneError fs
         "unrecognised flag: " ++ f ++ "\n" ++
         (case fuzzyMatch f (nub allFlags) of
             [] -> ""
-            suggs -> "did you mean one of:\n" ++ unlines (map ("  " ++) suggs)) 
+            suggs -> "did you mean one of:\n" ++ unlines (map ("  " ++) suggs))
 
 {- Note [-Bsymbolic and hooks]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -845,4 +860,3 @@ link statically.
 foreign import ccall safe "initGCStatistics"
    initGCStatistics :: IO ()
 
--- END OF DRIVER PROGRAM COPY

@@ -1,5 +1,6 @@
--- | This is a copy of many parts of the Main API for compiling plain Haskell source code.
---
+-- This is a copy of many parts of the Main API for compiling plain Haskell
+-- source code.
+-- 
 -- We need to copy these across since many functions we call are not
 -- exported by HscMain. This is rather ugly, but necessary to build
 -- against vanilla GHC.
@@ -200,14 +201,18 @@ codeOutput' :: DynFlags
            -> ModLocation
            -> ForeignStubs
            -> [PackageId]
-           -> Stream.Stream IO RawCmmGroup ()                       -- Compiled C--
+           -> Stream.Stream IO RawCmmGroup ()        -- Compiled Cmm
            -> IO (FilePath, -- output filename
                   (Bool{-stub_h_exists-}, Maybe FilePath{-stub_c_exists-}))
 codeOutput' dflags this_mod filenm location foreign_stubs pkg_deps cmm_stream
   =
     case hscTarget dflags of
-      HscLlvm -> llvmCodeOutput dflags this_mod filenm location foreign_stubs pkg_deps cmm_stream
-      _       -> codeOutput dflags this_mod filenm location foreign_stubs pkg_deps cmm_stream
+      HscLlvm ->
+          llvmCodeOutput dflags this_mod filenm location foreign_stubs
+                         pkg_deps cmm_stream
+      _       ->
+          codeOutput dflags this_mod filenm location foreign_stubs
+                     pkg_deps cmm_stream
 
 -- body mostly copied from codeOutput
 llvmCodeOutput :: DynFlags
@@ -216,7 +221,7 @@ llvmCodeOutput :: DynFlags
                -> ModLocation
                -> ForeignStubs
                -> [PackageId]
-               -> Stream.Stream IO RawCmmGroup ()                       -- Compiled C--
+               -> Stream.Stream IO RawCmmGroup ()       -- Compiled Cmm
                -> IO (FilePath,
                       (Bool{-stub_h_exists-}, Maybe FilePath{-stub_c_exists-}))
 llvmCodeOutput dflags this_mod filenm location foreign_stubs pkg_deps cmm_stream
@@ -230,16 +235,20 @@ llvmCodeOutput dflags this_mod filenm location foreign_stubs pkg_deps cmm_stream
               do_lint cmm = do
                 { showPass dflags "CmmLint"
                 ; case cmmLint dflags cmm of
-                        Just err -> do { log_action dflags dflags SevDump noSrcSpan defaultDumpStyle err
-                                       ; ghcExit dflags 1
-                                       }
+                        Just err ->
+                            do { log_action dflags dflags SevDump
+                                            noSrcSpan defaultDumpStyle err
+                               ; ghcExit dflags 1
+                               }
                         Nothing  -> return ()
                 ; return cmm
                 }
 
         ; showPass dflags "CodeOutput"
-        ; stubs_exist <- outputForeignStubs dflags this_mod location foreign_stubs
-        -- at this point, we have already checked that we are using the LLVM back end
+        ; stubs_exist <-
+            outputForeignStubs dflags this_mod location foreign_stubs
+        -- at this point, we have already checked that we are using
+        -- the LLVM back-end
         ; outputLlvm' dflags filenm linted_cmm_stream
         ; return (filenm, stubs_exist)
         }
@@ -442,7 +451,7 @@ runPipeline stop_phase hsc_env0 (input_fn, mb_phase)
              RealPhase start_phase' ->
                  when (not (start_phase' `happensBefore'` stop_phase)) $
                        throwGhcExceptionIO (UsageError
-                                   ("cannot compile this file to desired target: "
+                                ("cannot compile this file to desired target: "
                                       ++ input_fn))
              HscOut {} -> return ()
 
@@ -508,8 +517,10 @@ pipeLoop phase input_fn = do
                                         stopPhase output (src_basename env)
                                         dflags stopPhase (maybe_loc pst)
                when (final_fn /= input_fn) $ do
-                  let msg = ("Copying `" ++ input_fn ++"' to `" ++ final_fn ++ "'")
-                      line_prag = Just ("{-# LINE 1 \"" ++ src_filename env ++ "\" #-}\n")
+                  let msg =
+                        ("Copying `" ++ input_fn ++"' to `" ++ final_fn ++ "'")
+                      line_prag =
+                        Just ("{-# LINE 1 \"" ++ src_filename env ++ "\" #-}\n")
                   liftIO $ copyWithHeader dflags msg line_prag input_fn final_fn
                return (dflags, final_fn)
 
@@ -598,7 +609,8 @@ logWarnings w = HscTypes.Hsc $ \_ w0 -> return ((), w0 `unionBags` w)
 -- The new runPhase function, which we will install in NotGHC
 
 -- For the HscOut compilation phase, run the custom LLVM backend.
-newRunPhaseHook :: PhasePlus -> FilePath -> DynFlags -> CompPipeline (PhasePlus, FilePath)
+newRunPhaseHook ::  PhasePlus -> FilePath -> DynFlags ->
+                    CompPipeline (PhasePlus, FilePath)
 newRunPhaseHook (HscOut src_flavour mod_name result) _ dflags = do
 --        start <- liftIO $ getCPUTime
 --        let start' = (fromIntegral start) / (10^9)
@@ -632,7 +644,9 @@ newRunPhaseHook (HscOut src_flavour mod_name result) _ dflags = do
 
                     PipeState{hsc_env=hsc_env'} <- getPipeState
 
-                    (outputFilename, mStub) <- liftIO $ hscGenHardCode' hsc_env' cgguts mod_summary output_fn
+                    (outputFilename, mStub) <-
+                        liftIO $
+                          hscGenHardCode' hsc_env' cgguts mod_summary output_fn
                     case mStub of
                         Nothing -> return ()
                         Just stub_c ->
