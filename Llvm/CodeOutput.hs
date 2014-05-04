@@ -118,15 +118,11 @@ outputLlvmFunction  (LlvmFunction
     =
       let baseDecl = outputLlvmFunctionDeclBase dec
           argNames = map (Left . unpackFS) args
-          parameters = if null argNames then
-                           -- Function declarations have no argument names,
-                           -- we only care about the types here.
-                         zipWith llvmParameterToNamedParameter params (repeat (Left ""))
-                       else if (length argNames) == (length params)
-                            then zipWith llvmParameterToNamedParameter params argNames
-                            else
-                                error $ "outputLlvmFunction: Number of args does" ++
-                                        " not match argument type signatures."
+          parameters = if (length argNames) == (length params)
+                       then zipWith llvmParameterToNamedParameter params argNames
+                       else
+                           error $ "outputLlvmFunction: Number of arg names" ++
+                                   " supplied does not match type signature."
       in GlobalDefinition $
            baseDecl {
                G.parameters = (parameters, vArgs == VarArgs),
@@ -179,8 +175,6 @@ head' _ = error "Fatal error in head'"
 
 -- | Output out an LLVM block.
 -- It must be part of a function definition.
--- BasicBlocks need '[Named Instruction]' and 'Named Terminator' type args,
--- hence the 'Do's.
 outputLlvmBlock :: LlvmBlock -> BasicBlock
 outputLlvmBlock  (LlvmBlock blockId stmts) =
     BasicBlock name instrs (head' terminator)

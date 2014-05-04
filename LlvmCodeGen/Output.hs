@@ -29,7 +29,7 @@ import LLVM.General.AST
 outputLlvmData :: LlvmData -> [Definition]
 outputLlvmData (globals, types) =
     let outputLlvmTys (LMAlias    a) = outputLlvmAlias a
-        outputLlvmTys (LMFunction f) = outputLlvmFunctionDecl f -- is this right?
+        outputLlvmTys (LMFunction f) = outputLlvmFunctionDecl f
         outputLlvmTys _other         = error "outputLlvmData"
 
         types'   = map outputLlvmTys types
