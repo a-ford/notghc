@@ -201,34 +201,50 @@ cmmUsedLlvmGens = do
       ty     = (LMArray (length ivars) i8Ptr)
       usedArray = LMStaticArray (map cast ivars) ty
       sectName  = Just $ fsLit "llvm.metadata"
-      lmUsedVar = LMGlobalVar (fsLit "llvm.used") ty Appending sectName Nothing Constant
+      lmUsedVar =
+        LMGlobalVar (fsLit "llvm.used") ty Appending sectName Nothing Constant
       lmUsed    = LMGlobal lmUsedVar (Just usedArray)
   if null ivars
      then return ()
      else outputLlvm $ outputLlvmData ([lmUsed], [])
 
--- Converts a platform to strings representing the data layout and target OS+Arch
+-- Converts a platform to strings representing the data
+-- layout and target OS+Arch
 platformToDataLayoutString :: Platform -> String
 platformToDataLayoutString platform =
     case platform of
       Platform { platformArch = ArchX86, platformOS = OSDarwin } ->
-          "e-p:32:32:32-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:32:64-f32:32:32-f64:32:64-v64:64:64-v128:128:128-a0:0:64-f80:128:128-n8:16:32"
+          "e-p:32:32:32-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:32:64-" ++
+          "f32:32:32-f64:32:64-v64:64:64-v128:128:128-a0:0:64-" ++
+          "f80:128:128-n8:16:32"
       Platform { platformArch = ArchX86, platformOS = OSMinGW32 } ->
-          "e-p:32:32:32-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-f32:32:32-f64:64:64-f80:128:128-v64:64:64-v128:128:128-a0:0:64-f80:32:32-n8:16:32"
+          "e-p:32:32:32-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-" ++
+          "f32:32:32-f64:64:64-f80:128:128-v64:64:64-v128:128:128-" ++
+          "a0:0:64-f80:32:32-n8:16:32"
       Platform { platformArch = ArchX86, platformOS = OSLinux } ->
-                  "e-p:32:32:32-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:32:64-f32:32:32-f64:32:64-v64:64:64-v128:128:128-a0:0:64-f80:32:32-n8:16:32"
+          "e-p:32:32:32-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:32:64-" ++
+          "f32:32:32-f64:32:64-v64:64:64-v128:128:128-" ++
+          "a0:0:64-f80:32:32-n8:16:32"
       Platform { platformArch = ArchX86_64, platformOS = OSDarwin } ->
-                  "e-p:64:64:64-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-f32:32:32-f64:64:64-v64:64:64-v128:128:128-a0:0:64-s0:64:64-f80:128:128-n8:16:32:64"
+          "e-p:64:64:64-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-" ++
+          "f32:32:32-f64:64:64-v64:64:64-v128:128:128-" ++
+          "a0:0:64-s0:64:64-f80:128:128-n8:16:32:64"
       Platform { platformArch = ArchX86_64, platformOS = OSLinux } ->
-                  "e-p:64:64:64-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-f32:32:32-f64:64:64-v64:64:64-v128:128:128-a0:0:64-s0:64:64-f80:128:128-n8:16:32:64"
+          "e-p:64:64:64-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-" ++
+          "f32:32:32-f64:64:64-v64:64:64-v128:128:128-" ++
+          "a0:0:64-s0:64:64-f80:128:128-n8:16:32:64"
       Platform { platformArch = ArchARM {}, platformOS = OSLinux } ->
-                  "e-p:32:32:32-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-f32:32:32-f64:64:64-v64:64:64-v128:64:128-a0:0:64-n32"
+          "e-p:32:32:32-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-" ++
+          "f32:32:32-f64:64:64-v64:64:64-v128:64:128-a0:0:64-n32"
       Platform { platformArch = ArchARM {}, platformOS = OSAndroid } ->
-                  "e-p:32:32:32-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-f32:32:32-f64:64:64-v64:64:64-v128:64:128-a0:0:64-n32"
+          "e-p:32:32:32-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-" ++
+          "f32:32:32-f64:64:64-v64:64:64-v128:64:128-a0:0:64-n32"
       Platform { platformArch = ArchARM {}, platformOS = OSQNXNTO } ->
-                  "e-p:32:32:32-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-f32:32:32-f64:64:64-v64:64:64-v128:64:128-a0:0:64-n32"
+          "e-p:32:32:32-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-" ++
+          "f32:32:32-f64:64:64-v64:64:64-v128:64:128-a0:0:64-n32"
       Platform { platformArch = ArchARM {}, platformOS = OSiOS } ->
-                  "e-p:32:32:32-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-f32:32:32-f64:64:64-v64:64:64-v128:64:128-a0:0:64-n32"
+          "e-p:32:32:32-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64" ++
+          "-f32:32:32-f64:64:64-v64:64:64-v128:64:128-a0:0:64-n32"
       _ ->
           ""
 

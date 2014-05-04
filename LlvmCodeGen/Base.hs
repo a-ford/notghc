@@ -16,7 +16,8 @@ module LlvmCodeGen.Base (
         LlvmM,
         runLlvm, liftStream, withClearVars, varLookup, varInsert,
         markStackReg, checkStackReg,
-        funLookup, funInsert, getLlvmVer, getDynFlags, getDynFlag, getLlvmPlatform,
+        funLookup, funInsert, getLlvmVer, getDynFlags, getDynFlag,
+        getLlvmPlatform,
         dumpIfSetLlvm, runUs, markUsedVar, getUsedVars,
         ghcInternalFunctions,
         --renderLlvm,
@@ -70,7 +71,8 @@ import Control.Applicative (Applicative(..))
 -- * Some Data Types
 --
 
-type LlvmCmmDecl = GenCmmDecl [LlvmData] (Maybe CmmStatics) (ListGraph LlvmStatement)
+type LlvmCmmDecl =
+    GenCmmDecl [LlvmData] (Maybe CmmStatics) (ListGraph LlvmStatement)
 type LlvmBasicBlock = GenBasicBlock LlvmStatement
 
 -- | Global registers live on proc entry
@@ -96,9 +98,10 @@ type UnresStatic = Either UnresLabel LlvmStatic
 
 -- | Translate a basic CmmType to an LlvmType.
 cmmToLlvmType :: CmmType -> LlvmType
-cmmToLlvmType ty | isVecType ty   = LMVector (vecLength ty) (cmmToLlvmType (vecElemType ty))
-                 | isFloatType ty = widthToLlvmFloat $ typeWidth ty
-                 | otherwise      = widthToLlvmInt   $ typeWidth ty
+cmmToLlvmType ty
+    | isVecType ty   = LMVector (vecLength ty) (cmmToLlvmType (vecElemType ty))
+    | isFloatType ty = widthToLlvmFloat $ typeWidth ty
+    | otherwise      = widthToLlvmInt   $ typeWidth ty
 
 -- | Translate a Cmm Float Width to a LlvmType.
 widthToLlvmFloat :: Width -> LlvmType
@@ -120,30 +123,35 @@ llvmGhcCC dflags
 
 -- | Llvm Function type for Cmm function
 llvmFunTy :: LiveGlobalRegs -> LlvmM LlvmType
-llvmFunTy live = return . LMFunction =<< llvmFunSig' live (fsLit "a") ExternallyVisible
+llvmFunTy live =
+    return . LMFunction =<< llvmFunSig' live (fsLit "a") ExternallyVisible
 
 -- | Llvm Function signature
-llvmFunSig :: LiveGlobalRegs ->  CLabel -> LlvmLinkageType -> LlvmM LlvmFunctionDecl
+llvmFunSig ::  LiveGlobalRegs ->  CLabel ->
+               LlvmLinkageType -> LlvmM LlvmFunctionDecl
 llvmFunSig live lbl link = do
   lbl' <- strCLabel_llvm lbl
   llvmFunSig' live lbl' link
 
-llvmFunSig' :: LiveGlobalRegs -> LMString -> LlvmLinkageType -> LlvmM LlvmFunctionDecl
+llvmFunSig' ::  LiveGlobalRegs -> LMString -> LlvmLinkageType ->
+                LlvmM LlvmFunctionDecl
 llvmFunSig' live lbl link
   = do let toParams x | isPointer x = (x, [NoAlias, NoCapture])
                       | otherwise   = (x, [])
        dflags <- getDynFlags
        return $ LlvmFunctionDecl lbl link (llvmGhcCC dflags) LMVoid FixedArgs
-                                 (map (toParams . getVarType) (llvmFunArgs dflags live))
+                                 (map (toParams . getVarType)
+                                          (llvmFunArgs dflags live))
                                  (llvmFunAlign dflags)
 
 -- | Create a Haskell function in LLVM.
-mkLlvmFunc :: LiveGlobalRegs -> CLabel -> LlvmLinkageType -> LMSection -> LlvmBlocks
-           -> LlvmM LlvmFunction
+mkLlvmFunc :: LiveGlobalRegs -> CLabel -> LlvmLinkageType ->
+              LMSection -> LlvmBlocks -> LlvmM LlvmFunction
 mkLlvmFunc live lbl link sec blks
   = do funDec <- llvmFunSig live lbl link
        dflags <- getDynFlags
-       let funArgs = map (fsLit . Outp.showSDoc dflags . ppPlainName) (llvmFunArgs dflags live)
+       let funArgs = map (fsLit . Outp.showSDoc dflags . ppPlainName)
+                            (llvmFunArgs dflags live)
        return $ LlvmFunction funDec funArgs llvmStdFunAttrs sec blks
 
 -- | Alignment to use for functions
@@ -212,12 +220,15 @@ data LlvmEnv = LlvmEnv
   , envFreshMeta :: Int            -- ^ Supply of fresh metadata IDs
   , envUniqMeta :: UniqFM Int      -- ^ Global metadata nodes
   , envFunMap :: LlvmEnvMap        -- ^ Global functions so far, with type
-  , envAliases :: UniqSet LMString -- ^ Globals that we had to alias, see [Llvm Forward References]
-  , envUsedVars :: [LlvmVar]       -- ^ Pointers to be added to llvm.used (see @cmmUsedLlvmGens@)
+  -- ^ Globals that we had to alias, see [Llvm Forward References]
+  , envAliases :: UniqSet LMString
+  -- ^ Pointers to be added to llvm.used (see @cmmUsedLlvmGens@)
+  , envUsedVars :: [LlvmVar]
 
     -- the following get cleared for every function (see @withClearVars@)
   , envVarMap :: LlvmEnvMap        -- ^ Local variables so far, with type
-  , envStackRegs :: [GlobalReg]    -- ^ Non-constant registers (alloca'd in the function prelude)
+  -- ^ Non-constant registers (alloca'd in the function prelude)
+  , envStackRegs :: [GlobalReg]
   }
 
 type LlvmEnvMap = UniqFM LlvmType
@@ -275,27 +286,6 @@ runLlvm dflags ver filenm us m = do
 
     --targetMachine <- platformToTargetMachine (targetPlatform dflags)
 
-    debugTraceMsg dflags 1 (Outp.text "not dead before")
-
-    -- Some kind of problem with invalid pointers takes place in the next bit
-    -- and crashes the program hard, but somehow it still produces assembly
-{-
-    r <- Context.withContext                                                                    -- IO (Either String ())
-           (\c ->                                                                               -- Context -> IO (Either String ())
---             (Err.runErrorT . simplifyError) $                                                  -- IO (Either String ())
-               Err.runErrorT $
-               Target.withDefaultTargetMachine                                                  -- ErrorT String IO (Either String ())
-                 (\tm ->                                                                        -- TargetMachine -> IO (Either String ())
---                    (Err.runErrorT . simplifyError) $                                           -- IO (Either String ())
-                    Err.runErrorT $
-                      (General.withModuleFromAST c (envModule env')                             -- ErrorT String IO (Either String ())
-                         (\mod ->                                                               -- Module -> IO (Either String ())
-                           Err.runErrorT $                                                      -- IO (Either String ())
-                             General.writeTargetAssemblyToFile tm (General.File filenm) mod)))) -- ErrorT String IO ()
-    case r of
-      Left err -> error $ "runLlvm: Whilst outputting assembly: " ++ err
-      Right _ -> return ()
--}
 -- For debugging only
 {-
     asm <- Context.withContext
@@ -311,17 +301,18 @@ runLlvm dflags ver filenm us m = do
 
     -- This next bit of code is pretty horrible, we should really make it so
     -- that an error value can't get wrapped up in an enclosing "success" value
-    r <- Context.withContext                                         -- IO (Either String (Either String (Either String String)))
-           (\c ->                                                    -- Context -> IO (Either String (Either String (Either String String)))
-               Err.runErrorT $                                       -- IO (Either String (Either String (Either String String)))
-               Target.withDefaultTargetMachine                       -- ErrorT String IO (Either String (Either String String))
-                 (\tm ->                                             -- TargetMachine -> IO (Either String (Either String String))
-                    Err.runErrorT $                                  -- IO (Either String (Either String String))
-                      (General.withModuleFromAST c (envModule env')  -- ErrorT String IO (Either String String)
-                         (\mod ->                                    -- Module -> IO (Either String String)
-                           Err.runErrorT $                           -- IO (Either String String)
-                             General.moduleTargetAssembly tm mod)))) -- ErrorT String IO String
-    -- We should be able to use General.writeTargetAssemblyToFile here, but it segfaults.
+    r <- Context.withContext
+           (\c ->
+               Err.runErrorT $
+               Target.withDefaultTargetMachine
+                 (\tm ->
+                    Err.runErrorT $
+                      (General.withModuleFromAST c (envModule env')
+                         (\mod ->
+                           Err.runErrorT $
+                             General.moduleTargetAssembly tm mod))))
+    -- We should be able to use General.writeTargetAssemblyToFile here,
+    -- but it segfaults.
     let errfun e = error $ "runLlvm: Whilst outputting assembly: " ++ e
     case r of
       Left err -> errfun err
@@ -330,7 +321,6 @@ runLlvm dflags ver filenm us m = do
                     Right r'' -> case r'' of
                                    Left err -> errfun err
                                    Right r''' -> writeFile filenm r'''
-    debugTraceMsg dflags 1 (Outp.text "not dead after")
     return ()
     where env = LlvmEnv { envFunMap = emptyUFM
                         , envVarMap = emptyUFM
@@ -345,56 +335,6 @@ runLlvm dflags ver filenm us m = do
                         , envUniqMeta = emptyUFM
                         , envNextSection = 1
                         }
-
-{-
-withContext :: (Context -> IO a) -> IO a
-withDefaultTargetMachine :: (TargetMachine -> IO a) -> ErrorT String IO a
-withModuleFromAST :: Context -> AST.Module -> (Module -> IO a) -> ErrorT String IO a
-writeTargetAssemblyToFile :: TargetMachine -> File -> Module -> ErrorT String IO ()
-runErrorT :: ErrorT e m a -> m (Either e a)
--}
-{-
-writeTargetAssemblyToFile -- TargetMachine -> File -> Module -> ErrorT String IO ()
-    err <- Context.withContext
-         (\c ->
-           Err.runErrorT $ -- IO Either String ByteString
-             (General.withModuleFromAST c (envModule env')
-                (\mod -> Err.runErrorT $ General.writeLLVMAssemblyToFile (General.File "test.ll") mod)))
-
-    case err of
-      Left err' -> error err
-      Right bitcode -> error "it worked" --debugTraceMsg dflags 0 (Outp.text (show bitcode))
--}
-
-
-{-    _ <- Context.withContext -- IO Either String IO Either String IO Either String ()
-         (\c ->
-           Err.runErrorT $ -- IO Either String IO Either String IO Either String ()
-             (General.withModuleFromAST c (envModule env') -- ErrorT String IO Either String IO Either String ()
-               (\m -> Err.runErrorT $ -- IO Either String IO Either String ()
-                 Target.withDefaultTargetMachine -- ErrorT String IO Either String ()
-                  (\t -> Err.runErrorT $  -- IO Either String ()
-                    General.writeObjectToFile t (General.File "test.o") m))))
--}
-
-
---    debugTraceMsg dflags 0 (Outp.text "not dead before")
-{-    _ <- Context.withContext
-         (\c ->
-           Err.runErrorT $
-             (General.withModuleFromAST c (envModule env')
-                (\mod -> Err.runErrorT $ General.writeBitcodeToFile (General.File "test.bc") mod)))
--}
-{-
-    _ <- Context.withContext -- IO Either String IO Either String IO Either String ()
-         (\c ->
-           Err.runErrorT $ -- IO Either String IO Either String IO Either String ()
-             (General.withModuleFromAST c (envModule env') -- ErrorT String IO Either String IO Either String ()
-               (\m -> Err.runErrorT $ -- IO Either String IO Either String ()
-                 Target.withDefaultTargetMachine -- ErrorT String IO Either String ()
-                  (\t -> Err.runErrorT $  -- IO Either String ()
-                    General.writeObjectToFile t (General.File "test.o") m))))
--}
 
 -- | Modify module within an environment (external)
 modifyModule :: (Module -> Module) -> LlvmM ()
@@ -424,8 +364,10 @@ withClearVars m = LlvmM $ \env -> do
 
 -- | Insert variables or functions into the environment.
 varInsert, funInsert :: Uniquable key => key -> LlvmType -> LlvmM ()
-varInsert s t = modifyEnv $ \env -> env { envVarMap = addToUFM (envVarMap env) s t }
-funInsert s t = modifyEnv $ \env -> env { envFunMap = addToUFM (envFunMap env) s t }
+varInsert s t =
+    modifyEnv $ \env -> env { envVarMap = addToUFM (envVarMap env) s t }
+funInsert s t =
+    modifyEnv $ \env -> env { envFunMap = addToUFM (envFunMap env) s t }
 
 -- | Lookup variables or functions in the environment.
 varLookup, funLookup :: Uniquable key => key -> LlvmM (Maybe LlvmType)
@@ -442,7 +384,9 @@ checkStackReg r = getEnv ((elem r) . envStackRegs)
 
 -- | Allocate a new global unnamed metadata identifier
 getMetaUniqueId :: LlvmM Int
-getMetaUniqueId = LlvmM $ \env -> return (envFreshMeta env, env { envFreshMeta = envFreshMeta env + 1})
+getMetaUniqueId =
+    LlvmM $ \env ->
+        return (envFreshMeta env, env { envFreshMeta = envFreshMeta env + 1})
 
 -- | Get the LLVM version we are generating code for
 getLlvmVer :: LlvmM LlvmVersion
@@ -480,13 +424,15 @@ renderLlvm sdoc = do
 
 -- | Add a definition to a given module
 appendDefinitions :: Module -> [Definition] -> Module
-appendDefinitions mod defs = mod {moduleDefinitions =  (moduleDefinitions mod) ++ defs}
+appendDefinitions mod defs =
+    mod {moduleDefinitions = (moduleDefinitions mod) ++ defs}
 
 -- | Add a definition to the llvm module.
 outputLlvm :: [Definition] -> LlvmM ()
 outputLlvm defs = do dflags <- getDynFlags
                      (modifyEnv $ \env ->
-                          env {envModule = appendDefinitions (envModule env) defs})
+                          env {envModule =
+                                   appendDefinitions (envModule env) defs})
                      return ()
 
 -- | Run a @UniqSM@ action with our unique supply
@@ -506,18 +452,23 @@ getUsedVars = getEnv envUsedVars
 -- | Saves that at some point we didn't know the type of the label and
 -- generated a reference to a type variable instead
 saveAlias :: LMString -> LlvmM ()
-saveAlias lbl = modifyEnv $ \env -> env { envAliases = addOneToUniqSet (envAliases env) lbl }
+saveAlias lbl =
+    modifyEnv $ \env -> env { envAliases = addOneToUniqSet (envAliases env) lbl}
 
 -- | Sets metadata node for a given unique
 setUniqMeta :: Unique -> Int -> LlvmM ()
-setUniqMeta f m = modifyEnv $ \env -> env { envUniqMeta = addToUFM (envUniqMeta env) f m }
+setUniqMeta f m =
+    modifyEnv $ \env -> env { envUniqMeta = addToUFM (envUniqMeta env) f m }
 -- | Gets metadata node for given unique
 getUniqMeta :: Unique -> LlvmM (Maybe Int)
 getUniqMeta s = getEnv (flip lookupUFM s . envUniqMeta)
 
 -- | Returns a fresh section ID
 freshSectionId :: LlvmM Int
-freshSectionId = LlvmM $ \env -> return (envNextSection env, env { envNextSection = envNextSection env + 1})
+freshSectionId =
+    LlvmM $ \env ->
+        return (envNextSection env, env { envNextSection =
+                                              envNextSection env + 1})
 
 -- ----------------------------------------------------------------------------
 -- * Internal functions
@@ -562,7 +513,9 @@ strDisplayName_llvm lbl = do
     dflags <- getDynFlags
     let sdoc = pprCLabel platform lbl
         depth = Outp.PartWay 1
-        style = Outp.mkUserStyle (\ _ _ -> Outp.NameNotInScope2, Outp.alwaysQualifyModules) depth
+        style =
+            Outp.mkUserStyle (\ _ _ -> Outp.NameNotInScope2,
+                                       Outp.alwaysQualifyModules) depth
         str = Outp.renderWithStyle dflags sdoc style
     return (fsLit (dropInfoSuffix str))
 
@@ -611,14 +564,17 @@ generateAliases :: LlvmM LlvmData
 generateAliases = do
   delayed <- fmap uniqSetToList $ getEnv envAliases
   defss <- flip mapM delayed $ \lbl -> do
-    let var      ty = LMGlobalVar lbl (LMPointer ty) External Nothing Nothing Global
+    let var      ty =
+            LMGlobalVar lbl (LMPointer ty) External Nothing Nothing Global
         aliasLbl    = lbl `appendFS` fsLit "$alias"
         aliasVar    = LMGlobalVar aliasLbl i8Ptr Private Nothing Nothing Alias
     -- If we have a definition, set the alias value using a
     -- cost. Otherwise, declare it as an undefined external symbol.
     m_ty <- funLookup lbl
     case m_ty of
-      Just ty -> return [LMGlobal aliasVar $ Just $ LMBitc (LMStaticPointer (var ty)) i8Ptr]
+      Just ty ->
+        return
+          [LMGlobal aliasVar $ Just $ LMBitc (LMStaticPointer (var ty)) i8Ptr]
       Nothing -> return [LMGlobal (var i8) Nothing,
                          LMGlobal aliasVar $ Just $ LMStaticPointer (var i8) ]
   -- Reset forward list

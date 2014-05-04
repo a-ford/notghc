@@ -94,8 +94,10 @@ floatToSomeFloat d ty =
       Types.LMFloat    -> F.Single (narrowFp d)
       Types.LMDouble   -> F.Double d
       -- These are unimplemented, but aren't generated in the first place.
-      Types.LMFloat80  -> error "TypeConversions: X86 specific 80 bit floats not implemented."
-      Types.LMFloat128 -> error "TypeConversions: 128 bit floats not implemented."
+      Types.LMFloat80  ->
+          error "TypeConversions: X86 specific 80 bit floats not implemented."
+      Types.LMFloat128 ->
+          error "TypeConversions: 128 bit floats not implemented."
       t          -> error $ "Not an floating type: " ++ show t
 
 llvmTypeToType :: LlvmType -> AST.Type
@@ -107,14 +109,16 @@ llvmTypeToType ty =
       Types.LMFloat80        -> FloatingPointType 80 DoubleExtended
       Types.LMFloat128       -> FloatingPointType 128 IEEE
       Types.LMPointer ty     ->
-          PointerType (llvmTypeToType ty) (AS.AddrSpace 0) -- default address space
+          PointerType (llvmTypeToType ty) (AS.AddrSpace 0) -- default addr space
       Types.LMArray len ty   -> ArrayType (fromIntegral len) (llvmTypeToType ty)
-      Types.LMVector len typ -> VectorType (fromIntegral len) (llvmTypeToType ty)
+      Types.LMVector len typ ->
+          VectorType (fromIntegral len) (llvmTypeToType ty)
       Types.LMLabel          -> error "llvmTypeToType: Labels undefined."
       Types.LMVoid           -> VoidType
       Types.LMStruct tys     ->
           StructureType True (map llvmTypeToType tys) -- packed=True
-      Types.LMAlias ali       -> NamedTypeReference (Name ((unpackFS . fst) ali))
+      Types.LMAlias ali       ->
+          NamedTypeReference (Name ((unpackFS . fst) ali))
       Types.LMMetadata        -> MetadataType
       Types.LMFunction (LlvmFunctionDecl _ _ _ ty vArgs params _) ->
           let params' = (map (llvmTypeToType . fst) params)
@@ -123,18 +127,20 @@ llvmTypeToType ty =
 llvmStaticToConstant :: LlvmStatic -> C.Constant
 llvmStaticToConstant stat =
     case stat of
-      Types.LMComment str -> error "llvmStaticToConstant: No conversion available for co"
+      Types.LMComment str ->
+          error "llvmStaticToConstant: No conversion available for comments"
       Types.LMStaticLit lit -> llvmLitToConstant lit
       Types.LMUninitType ty -> C.Undef (llvmTypeToType ty)
       Types.LMStaticStr str ty ->
-          error "llvmStaticToConstant: No conversion available for static strings."
+          error "llvmStaticToConstant: No conversion for static strings."
       -- The type here is of the array, not of its elements.
       -- Therefore we must get the type of the elements.
       Types.LMStaticArray stats ty ->
-          C.Array (llvmTypeToType (getElemType ty)) (map llvmStaticToConstant stats)
+          C.Array (llvmTypeToType (getElemType ty))
+                    (map llvmStaticToConstant stats)
       Types.LMStaticStruc stats ty ->
           C.Struct Nothing True (map llvmStaticToConstant stats) -- packed=True
-      Types.LMStaticPointer var -> llvmVarToConstant var -- Questionable
+      Types.LMStaticPointer var -> llvmVarToConstant var
 
       -- static expressions
       Types.LMBitc stat ty ->
@@ -143,11 +149,14 @@ llvmStaticToConstant stat =
           C.PtrToInt (llvmStaticToConstant stat) (llvmTypeToType ty)
       -- bools in LMAdd and LMSub represent no (un)signed wrap flag
       Types.LMAdd statL statR ->
-          C.Add False False (llvmStaticToConstant statL) (llvmStaticToConstant statR)
+          C.Add False False (llvmStaticToConstant statL)
+                              (llvmStaticToConstant statR)
       Types.LMSub statL statR ->
-          C.Sub False False (llvmStaticToConstant statL) (llvmStaticToConstant statR)
+          C.Sub False False (llvmStaticToConstant statL)
+                              (llvmStaticToConstant statR)
 
-llvmCallConventionToCallingConvention :: LlvmCallConvention -> CC.CallingConvention
+llvmCallConventionToCallingConvention ::
+    LlvmCallConvention -> CC.CallingConvention
 llvmCallConventionToCallingConvention conv =
     case conv of
       CC_Ccc -> CC.C
@@ -186,7 +195,8 @@ llvmParamAttrToParameterAttribute attr =
       NoCapture -> A.NoCapture
       Nest -> A.Nest
 
-llvmCmpOpToPredicate :: LlvmCmpOp -> Either IP.IntegerPredicate FPP.FloatingPointPredicate
+llvmCmpOpToPredicate ::  LlvmCmpOp ->
+                         Either IP.IntegerPredicate FPP.FloatingPointPredicate
 llvmCmpOpToPredicate op =
     let intOp = llvmCmpOpToIntegerPredicate op
         fpOp  = llvmCmpOpToFloatingPointPredicate op
@@ -208,8 +218,10 @@ llvmCmpOpToIntegerPredicate op =
       LM_CMP_Sle -> Just IP.SLE
       _          -> Nothing
 
--- The difference between O and U prefixed predicates relates to qNaN (quiet NaN) values
-llvmCmpOpToFloatingPointPredicate :: LlvmCmpOp -> Maybe FPP.FloatingPointPredicate
+-- The difference between O and U prefixed predicates relates
+-- to qNaN (quiet NaN) values
+llvmCmpOpToFloatingPointPredicate ::  LlvmCmpOp ->
+                                      Maybe FPP.FloatingPointPredicate
 llvmCmpOpToFloatingPointPredicate op =
     case op of
       LM_CMP_Feq -> Just FPP.OEQ
@@ -226,9 +238,11 @@ llvmVarToOperand v@(LMGlobalVar str ty link sec ali con) =
     ConstantOperand (C.GlobalReference (llvmVarToName v))
 llvmVarToOperand v@(LMLocalVar uniq ty) = LocalReference (llvmVarToName v)
 llvmVarToOperand v@(LMNLocalVar str ty) = LocalReference (llvmVarToName v)
-llvmVarToOperand v@(LMLitVar lit) = ConstantOperand (llvmStaticToConstant (LMStaticLit lit))
+llvmVarToOperand v@(LMLitVar lit) =
+    ConstantOperand (llvmStaticToConstant (LMStaticLit lit))
 
-llvmParameterToNamedParameter :: LlvmParameter -> Either String Word -> AST.Parameter
+llvmParameterToNamedParameter ::  LlvmParameter ->
+                                  Either String Word -> AST.Parameter
 llvmParameterToNamedParameter (ty, attrs) name =
     Parameter ty' name' attrs'
         where attrs' = map llvmParamAttrToParameterAttribute attrs
@@ -241,7 +255,8 @@ llvmParameterToParameter :: LlvmParameter -> IO AST.Parameter
 llvmParameterToParameter param =
     do us <- mkSplitUniqSupply 'k'
        let name = uniqFromSupply us
-       return (llvmParameterToNamedParameter param (Right (fromIntegral (getKey name))))
+       return (llvmParameterToNamedParameter param
+                 (Right (fromIntegral (getKey name))))
 
 -- Big, untidy function. Could be made more general and sucinct.
 platformToDataLayout :: Platform -> DL.DataLayout
@@ -249,261 +264,280 @@ platformToDataLayout platform =
     case platform of
       Platform { platformArch = ArchX86, platformOS = OSDarwin } ->
           DL.DataLayout { DL.endianness = Just DL.LittleEndian,
-                          DL.stackAlignment = Nothing, -- default stack alignment
-                          DL.pointerLayouts = Map.fromList [(AS.AddrSpace 0,
-                                                             (32, DL.AlignmentInfo 32 (Just 32)))],
-                          DL.typeLayouts = Map.fromList [((DL.IntegerAlign, 1),
-                                                          DL.AlignmentInfo 8 (Just 8)),
-                                                   ((DL.IntegerAlign, 8),
-                                                    DL.AlignmentInfo 8 (Just 8)),
-                                                   ((DL.IntegerAlign, 16),
-                                                    DL.AlignmentInfo 16 (Just 16)),
-                                                   ((DL.IntegerAlign, 32),
-                                                    DL.AlignmentInfo 32 (Just 32)),
-                                                   ((DL.IntegerAlign, 64),
-                                                    DL.AlignmentInfo 32 (Just 64)),
-                                                   ((DL.FloatAlign, 32),
-                                                    DL.AlignmentInfo 32 (Just 32)),
-                                                   ((DL.FloatAlign, 64),
-                                                    DL.AlignmentInfo 32 (Just 64)),
-                                                   ((DL.VectorAlign, 64),
-                                                    DL.AlignmentInfo 64 (Just 64)),
-                                                   ((DL.VectorAlign, 128),
-                                                    DL.AlignmentInfo 128 (Just 128)),
-                                                   ((DL.AggregateAlign, 0),
-                                                    DL.AlignmentInfo 0 (Just 64)),
-                                                   ((DL.FloatAlign, 80),
-                                                    DL.AlignmentInfo 128 (Just 128))],
+                          DL.stackAlignment = Nothing, -- default
+                          DL.pointerLayouts =
+                              Map.fromList [(AS.AddrSpace 0,
+                                             (32, DL.AlignmentInfo 32
+                                                    (Just 32)))],
+                          DL.typeLayouts =
+                              Map.fromList [((DL.IntegerAlign, 1),
+                                             DL.AlignmentInfo 8 (Just 8)),
+                                            ((DL.IntegerAlign, 8),
+                                             DL.AlignmentInfo 8 (Just 8)),
+                                            ((DL.IntegerAlign, 16),
+                                             DL.AlignmentInfo 16 (Just 16)),
+                                            ((DL.IntegerAlign, 32),
+                                             DL.AlignmentInfo 32 (Just 32)),
+                                            ((DL.IntegerAlign, 64),
+                                             DL.AlignmentInfo 32 (Just 64)),
+                                            ((DL.FloatAlign, 32),
+                                             DL.AlignmentInfo 32 (Just 32)),
+                                            ((DL.FloatAlign, 64),
+                                             DL.AlignmentInfo 32 (Just 64)),
+                                            ((DL.VectorAlign, 64),
+                                             DL.AlignmentInfo 64 (Just 64)),
+                                            ((DL.VectorAlign, 128),
+                                             DL.AlignmentInfo 128 (Just 128)),
+                                            ((DL.AggregateAlign, 0),
+                                             DL.AlignmentInfo 0 (Just 64)),
+                                            ((DL.FloatAlign, 80),
+                                             DL.AlignmentInfo 128 (Just 128))],
                        DL.nativeSizes = Just (Set.fromList [8, 16, 32])
                      }
       Platform { platformArch = ArchX86, platformOS = OSMinGW32 } ->
           DL.DataLayout { DL.endianness = Just DL.LittleEndian,
                        DL.stackAlignment = Nothing, -- default stack alignment
-                       DL.pointerLayouts = Map.fromList [(AS.AddrSpace 0,
-                                                          (32, DL.AlignmentInfo 32 (Just 32)))],
-                       DL.typeLayouts = Map.fromList [((DL.IntegerAlign, 1),
-                                                       DL.AlignmentInfo 8 (Just 8)),
-                                                   ((DL.IntegerAlign, 8),
-                                                    DL.AlignmentInfo 8 (Just 8)),
-                                                   ((DL.IntegerAlign, 16),
-                                                    DL.AlignmentInfo 16 (Just 16)),
-                                                   ((DL.IntegerAlign, 32),
-                                                    DL.AlignmentInfo 32 (Just 32)),
-                                                   ((DL.IntegerAlign, 64),
-                                                    DL.AlignmentInfo 64 (Just 64)),
-                                                   ((DL.FloatAlign, 32),
-                                                    DL.AlignmentInfo 32 (Just 32)),
-                                                   ((DL.FloatAlign, 64),
-                                                    DL.AlignmentInfo 64 (Just 64)),
-                                                   ((DL.VectorAlign, 64),
-                                                    DL.AlignmentInfo 64 (Just 64)),
-                                                   ((DL.VectorAlign, 128),
-                                                    DL.AlignmentInfo 128 (Just 128)),
-                                                   ((DL.AggregateAlign, 0),
-                                                    DL.AlignmentInfo 0 (Just 64)),
-                                                   ((DL.FloatAlign, 80),
-                                                    DL.AlignmentInfo 32 (Just 32))],
+                       DL.pointerLayouts =
+                           Map.fromList [(AS.AddrSpace 0,
+                                          (32, DL.AlignmentInfo 32 (Just 32)))],
+                       DL.typeLayouts =
+                           Map.fromList [((DL.IntegerAlign, 1),
+                                          DL.AlignmentInfo 8 (Just 8)),
+                                         ((DL.IntegerAlign, 8),
+                                          DL.AlignmentInfo 8 (Just 8)),
+                                         ((DL.IntegerAlign, 16),
+                                          DL.AlignmentInfo 16 (Just 16)),
+                                         ((DL.IntegerAlign, 32),
+                                          DL.AlignmentInfo 32 (Just 32)),
+                                         ((DL.IntegerAlign, 64),
+                                          DL.AlignmentInfo 64 (Just 64)),
+                                         ((DL.FloatAlign, 32),
+                                          DL.AlignmentInfo 32 (Just 32)),
+                                         ((DL.FloatAlign, 64),
+                                          DL.AlignmentInfo 64 (Just 64)),
+                                         ((DL.VectorAlign, 64),
+                                          DL.AlignmentInfo 64 (Just 64)),
+                                         ((DL.VectorAlign, 128),
+                                          DL.AlignmentInfo 128 (Just 128)),
+                                         ((DL.AggregateAlign, 0),
+                                          DL.AlignmentInfo 0 (Just 64)),
+                                         ((DL.FloatAlign, 80),
+                                          DL.AlignmentInfo 32 (Just 32))],
                        DL.nativeSizes = Just (Set.fromList [8, 16, 32])
                      }
       Platform { platformArch = ArchX86, platformOS = OSLinux } ->
           DL.DataLayout { DL.endianness = Just DL.LittleEndian,
                        DL.stackAlignment = Nothing, -- default stack alignment
-                       DL.pointerLayouts = Map.fromList [(AS.AddrSpace 0,
-                                                          (32, DL.AlignmentInfo 32 (Just 32)))],
-                       DL.typeLayouts = Map.fromList [((DL.IntegerAlign, 1),
-                                                       DL.AlignmentInfo 8 (Just 8)),
-                                                   ((DL.IntegerAlign, 8),
-                                                    DL.AlignmentInfo 8 (Just 8)),
-                                                   ((DL.IntegerAlign, 16),
-                                                    DL.AlignmentInfo 16 (Just 16)),
-                                                   ((DL.IntegerAlign, 32),
-                                                    DL.AlignmentInfo 32 (Just 32)),
-                                                   ((DL.IntegerAlign, 64),
-                                                    DL.AlignmentInfo 32 (Just 64)),
-                                                   ((DL.FloatAlign, 32),
-                                                    DL.AlignmentInfo 32 (Just 32)),
-                                                   ((DL.FloatAlign, 64),
-                                                    DL.AlignmentInfo 32 (Just 64)),
-                                                   ((DL.VectorAlign, 64),
-                                                    DL.AlignmentInfo 64 (Just 64)),
-                                                   ((DL.VectorAlign, 128),
-                                                    DL.AlignmentInfo 128 (Just 128)),
-                                                   ((DL.AggregateAlign, 0),
-                                                    DL.AlignmentInfo 0 (Just 64)),
-                                                   ((DL.FloatAlign, 80),
-                                                    DL.AlignmentInfo 32 (Just 32))],
+                       DL.pointerLayouts =
+                           Map.fromList [(AS.AddrSpace 0,
+                                          (32, DL.AlignmentInfo 32 (Just 32)))],
+                       DL.typeLayouts =
+                           Map.fromList [((DL.IntegerAlign, 1),
+                                          DL.AlignmentInfo 8 (Just 8)),
+                                         ((DL.IntegerAlign, 8),
+                                          DL.AlignmentInfo 8 (Just 8)),
+                                         ((DL.IntegerAlign, 16),
+                                          DL.AlignmentInfo 16 (Just 16)),
+                                         ((DL.IntegerAlign, 32),
+                                          DL.AlignmentInfo 32 (Just 32)),
+                                         ((DL.IntegerAlign, 64),
+                                          DL.AlignmentInfo 32 (Just 64)),
+                                         ((DL.FloatAlign, 32),
+                                          DL.AlignmentInfo 32 (Just 32)),
+                                         ((DL.FloatAlign, 64),
+                                          DL.AlignmentInfo 32 (Just 64)),
+                                         ((DL.VectorAlign, 64),
+                                          DL.AlignmentInfo 64 (Just 64)),
+                                         ((DL.VectorAlign, 128),
+                                          DL.AlignmentInfo 128 (Just 128)),
+                                         ((DL.AggregateAlign, 0),
+                                          DL.AlignmentInfo 0 (Just 64)),
+                                         ((DL.FloatAlign, 80),
+                                          DL.AlignmentInfo 32 (Just 32))],
                        DL.nativeSizes = Just (Set.fromList [8, 16, 32])
                      }
       Platform { platformArch = ArchX86_64, platformOS = OSDarwin } ->
           DL.DataLayout { DL.endianness = Just DL.LittleEndian,
                        DL.stackAlignment = Nothing, -- default stack alignment
-                       DL.pointerLayouts = Map.fromList [(AS.AddrSpace 0,
-                                                          (64, DL.AlignmentInfo 64 (Just 64)))],
-                       DL.typeLayouts = Map.fromList [((DL.IntegerAlign, 1),
-                                                       DL.AlignmentInfo 8 (Just 8)),
-                                                   ((DL.IntegerAlign, 8),
-                                                    DL.AlignmentInfo 8 (Just 8)),
-                                                   ((DL.IntegerAlign, 16),
-                                                    DL.AlignmentInfo 16 (Just 16)),
-                                                   ((DL.IntegerAlign, 32),
-                                                    DL.AlignmentInfo 32 (Just 32)),
-                                                   ((DL.IntegerAlign, 64),
-                                                    DL.AlignmentInfo 64 (Just 64)),
-                                                   ((DL.FloatAlign, 32),
-                                                    DL.AlignmentInfo 32 (Just 32)),
-                                                   ((DL.FloatAlign, 64),
-                                                    DL.AlignmentInfo 64 (Just 64)),
-                                                   ((DL.VectorAlign, 64),
-                                                    DL.AlignmentInfo 64 (Just 64)),
-                                                   ((DL.VectorAlign, 128),
-                                                    DL.AlignmentInfo 128 (Just 128)),
-                                                   ((DL.AggregateAlign, 0),
-                                                    DL.AlignmentInfo 0 (Just 64)),
-                                                   ((DL.StackAlign, 0),
-                                                    DL.AlignmentInfo 64 (Just 64)),
-                                                   ((DL.FloatAlign, 80),
-                                                    DL.AlignmentInfo 128 (Just 128))],
+                       DL.pointerLayouts =
+                           Map.fromList [(AS.AddrSpace 0,
+                                          (64, DL.AlignmentInfo 64 (Just 64)))],
+                       DL.typeLayouts =
+                           Map.fromList [((DL.IntegerAlign, 1),
+                                          DL.AlignmentInfo 8 (Just 8)),
+                                         ((DL.IntegerAlign, 8),
+                                          DL.AlignmentInfo 8 (Just 8)),
+                                         ((DL.IntegerAlign, 16),
+                                          DL.AlignmentInfo 16 (Just 16)),
+                                         ((DL.IntegerAlign, 32),
+                                          DL.AlignmentInfo 32 (Just 32)),
+                                         ((DL.IntegerAlign, 64),
+                                          DL.AlignmentInfo 64 (Just 64)),
+                                         ((DL.FloatAlign, 32),
+                                          DL.AlignmentInfo 32 (Just 32)),
+                                         ((DL.FloatAlign, 64),
+                                          DL.AlignmentInfo 64 (Just 64)),
+                                         ((DL.VectorAlign, 64),
+                                          DL.AlignmentInfo 64 (Just 64)),
+                                         ((DL.VectorAlign, 128),
+                                          DL.AlignmentInfo 128 (Just 128)),
+                                         ((DL.AggregateAlign, 0),
+                                          DL.AlignmentInfo 0 (Just 64)),
+                                         ((DL.StackAlign, 0),
+                                          DL.AlignmentInfo 64 (Just 64)),
+                                         ((DL.FloatAlign, 80),
+                                          DL.AlignmentInfo 128 (Just 128))],
                        DL.nativeSizes = Just (Set.fromList [8, 16, 32, 64])
                      }
       Platform { platformArch = ArchX86_64, platformOS = OSLinux } ->
           DL.DataLayout { DL.endianness = Just DL.LittleEndian,
                        DL.stackAlignment = Nothing, -- default stack alignment
-                       DL.pointerLayouts = Map.fromList [(AS.AddrSpace 0,
-                                                          (64, DL.AlignmentInfo 64 (Just 64)))],
-                       DL.typeLayouts = Map.fromList [((DL.IntegerAlign, 1),
-                                                       DL.AlignmentInfo 8 (Just 8)),
-                                                   ((DL.IntegerAlign, 8),
-                                                    DL.AlignmentInfo 8 (Just 8)),
-                                                   ((DL.IntegerAlign, 16),
-                                                    DL.AlignmentInfo 16 (Just 16)),
-                                                   ((DL.IntegerAlign, 32),
-                                                    DL.AlignmentInfo 32 (Just 32)),
-                                                   ((DL.IntegerAlign, 64),
-                                                    DL.AlignmentInfo 64 (Just 64)),
-                                                   ((DL.FloatAlign, 32),
-                                                    DL.AlignmentInfo 32 (Just 32)),
-                                                   ((DL.FloatAlign, 64),
-                                                    DL.AlignmentInfo 64 (Just 64)),
-                                                   ((DL.VectorAlign, 64),
-                                                    DL.AlignmentInfo 64 (Just 64)),
-                                                   ((DL.VectorAlign, 128),
-                                                    DL.AlignmentInfo 128 (Just 128)),
-                                                   ((DL.AggregateAlign, 0),
-                                                    DL.AlignmentInfo 0 (Just 64)),
-                                                   ((DL.StackAlign, 0),
-                                                    DL.AlignmentInfo 64 (Just 64)),
-                                                   ((DL.FloatAlign, 80),
-                                                    DL.AlignmentInfo 128 (Just 128))],
+                       DL.pointerLayouts =
+                           Map.fromList [(AS.AddrSpace 0,
+                                          (64, DL.AlignmentInfo 64 (Just 64)))],
+                       DL.typeLayouts =
+                           Map.fromList [((DL.IntegerAlign, 1),
+                                          DL.AlignmentInfo 8 (Just 8)),
+                                         ((DL.IntegerAlign, 8),
+                                          DL.AlignmentInfo 8 (Just 8)),
+                                         ((DL.IntegerAlign, 16),
+                                          DL.AlignmentInfo 16 (Just 16)),
+                                         ((DL.IntegerAlign, 32),
+                                          DL.AlignmentInfo 32 (Just 32)),
+                                         ((DL.IntegerAlign, 64),
+                                          DL.AlignmentInfo 64 (Just 64)),
+                                         ((DL.FloatAlign, 32),
+                                          DL.AlignmentInfo 32 (Just 32)),
+                                         ((DL.FloatAlign, 64),
+                                          DL.AlignmentInfo 64 (Just 64)),
+                                         ((DL.VectorAlign, 64),
+                                          DL.AlignmentInfo 64 (Just 64)),
+                                         ((DL.VectorAlign, 128),
+                                          DL.AlignmentInfo 128 (Just 128)),
+                                         ((DL.AggregateAlign, 0),
+                                          DL.AlignmentInfo 0 (Just 64)),
+                                         ((DL.StackAlign, 0),
+                                          DL.AlignmentInfo 64 (Just 64)),
+                                         ((DL.FloatAlign, 80),
+                                          DL.AlignmentInfo 128 (Just 128))],
                        DL.nativeSizes = Just (Set.fromList [8, 16, 32, 64])
                      }
       Platform { platformArch = ArchARM {}, platformOS = OSLinux } ->
           DL.DataLayout { DL.endianness = Just DL.LittleEndian,
                        DL.stackAlignment = Nothing, -- default stack alignment
-                       DL.pointerLayouts = Map.fromList [(AS.AddrSpace 0,
-                                                          (32, DL.AlignmentInfo 32 (Just 32)))],
-                       DL.typeLayouts = Map.fromList [((DL.IntegerAlign, 1),
-                                                       DL.AlignmentInfo 8 (Just 8)),
-                                                   ((DL.IntegerAlign, 8),
-                                                    DL.AlignmentInfo 8 (Just 8)),
-                                                   ((DL.IntegerAlign, 16),
-                                                    DL.AlignmentInfo 16 (Just 16)),
-                                                   ((DL.IntegerAlign, 32),
-                                                    DL.AlignmentInfo 32 (Just 32)),
-                                                   ((DL.IntegerAlign, 64),
-                                                    DL.AlignmentInfo 64 (Just 64)),
-                                                   ((DL.FloatAlign, 32),
-                                                    DL.AlignmentInfo 32 (Just 32)),
-                                                   ((DL.FloatAlign, 64),
-                                                    DL.AlignmentInfo 64 (Just 64)),
-                                                   ((DL.VectorAlign, 64),
-                                                    DL.AlignmentInfo 64 (Just 64)),
-                                                   ((DL.VectorAlign, 128),
-                                                    DL.AlignmentInfo 64 (Just 128)),
-                                                   ((DL.AggregateAlign, 0),
-                                                    DL.AlignmentInfo 0 (Just 64))],
-                       DL.nativeSizes = Just (Set.fromList [32])
-                     }
+                       DL.pointerLayouts =
+                           Map.fromList [(AS.AddrSpace 0,
+                                          (32, DL.AlignmentInfo 32 (Just 32)))],
+                       DL.typeLayouts =
+                           Map.fromList [((DL.IntegerAlign, 1),
+                                          DL.AlignmentInfo 8 (Just 8)),
+                                         ((DL.IntegerAlign, 8),
+                                          DL.AlignmentInfo 8 (Just 8)),
+                                         ((DL.IntegerAlign, 16),
+                                          DL.AlignmentInfo 16 (Just 16)),
+                                         ((DL.IntegerAlign, 32),
+                                          DL.AlignmentInfo 32 (Just 32)),
+                                         ((DL.IntegerAlign, 64),
+                                          DL.AlignmentInfo 64 (Just 64)),
+                                         ((DL.FloatAlign, 32),
+                                          DL.AlignmentInfo 32 (Just 32)),
+                                         ((DL.FloatAlign, 64),
+                                          DL.AlignmentInfo 64 (Just 64)),
+                                         ((DL.VectorAlign, 64),
+                                          DL.AlignmentInfo 64 (Just 64)),
+                                         ((DL.VectorAlign, 128),
+                                          DL.AlignmentInfo 64 (Just 128)),
+                                         ((DL.AggregateAlign, 0),
+                                          DL.AlignmentInfo 0 (Just 64))],
+                           DL.nativeSizes = Just (Set.fromList [32])
+                        }
       Platform { platformArch = ArchARM {}, platformOS = OSAndroid } ->
           DL.DataLayout { DL.endianness = Just DL.LittleEndian,
                        DL.stackAlignment = Nothing, -- default stack alignment
-                       DL.pointerLayouts = Map.fromList [(AS.AddrSpace 0,
-                                                          (32, DL.AlignmentInfo 32 (Just 32)))],
-                       DL.typeLayouts = Map.fromList [((DL.IntegerAlign, 1),
-                                                       DL.AlignmentInfo 8 (Just 8)),
-                                                   ((DL.IntegerAlign, 8),
-                                                    DL.AlignmentInfo 8 (Just 8)),
-                                                   ((DL.IntegerAlign, 16),
-                                                    DL.AlignmentInfo 16 (Just 16)),
-                                                   ((DL.IntegerAlign, 32),
-                                                    DL.AlignmentInfo 32 (Just 32)),
-                                                   ((DL.IntegerAlign, 64),
-                                                    DL.AlignmentInfo 64 (Just 64)),
-                                                   ((DL.FloatAlign, 32),
-                                                    DL.AlignmentInfo 32 (Just 32)),
-                                                   ((DL.FloatAlign, 64),
-                                                    DL.AlignmentInfo 64 (Just 64)),
-                                                   ((DL.VectorAlign, 64),
-                                                    DL.AlignmentInfo 64 (Just 64)),
-                                                   ((DL.VectorAlign, 128),
-                                                    DL.AlignmentInfo 64 (Just 128)),
-                                                   ((DL.AggregateAlign, 0),
-                                                    DL.AlignmentInfo 0 (Just 64))],
-                       DL.nativeSizes = Just (Set.fromList [32])
-                     }
+                       DL.pointerLayouts =
+                           Map.fromList [(AS.AddrSpace 0,
+                                          (32, DL.AlignmentInfo 32 (Just 32)))],
+                       DL.typeLayouts =
+                           Map.fromList [((DL.IntegerAlign, 1),
+                                          DL.AlignmentInfo 8 (Just 8)),
+                                         ((DL.IntegerAlign, 8),
+                                          DL.AlignmentInfo 8 (Just 8)),
+                                         ((DL.IntegerAlign, 16),
+                                          DL.AlignmentInfo 16 (Just 16)),
+                                         ((DL.IntegerAlign, 32),
+                                          DL.AlignmentInfo 32 (Just 32)),
+                                         ((DL.IntegerAlign, 64),
+                                          DL.AlignmentInfo 64 (Just 64)),
+                                         ((DL.FloatAlign, 32),
+                                          DL.AlignmentInfo 32 (Just 32)),
+                                         ((DL.FloatAlign, 64),
+                                          DL.AlignmentInfo 64 (Just 64)),
+                                         ((DL.VectorAlign, 64),
+                                          DL.AlignmentInfo 64 (Just 64)),
+                                         ((DL.VectorAlign, 128),
+                                          DL.AlignmentInfo 64 (Just 128)),
+                                         ((DL.AggregateAlign, 0),
+                                          DL.AlignmentInfo 0 (Just 64))],
+                           DL.nativeSizes = Just (Set.fromList [32])
+                        }
       Platform { platformArch = ArchARM {}, platformOS = OSQNXNTO } ->
           DL.DataLayout { DL.endianness = Just DL.LittleEndian,
                        DL.stackAlignment = Nothing, -- default stack alignment
-                       DL.pointerLayouts = Map.fromList [(AS.AddrSpace 0,
-                                                          (32, DL.AlignmentInfo 32 (Just 32)))],
-                       DL.typeLayouts = Map.fromList [((DL.IntegerAlign, 1),
-                                                       DL.AlignmentInfo 8 (Just 8)),
-                                                   ((DL.IntegerAlign, 8),
-                                                    DL.AlignmentInfo 8 (Just 8)),
-                                                   ((DL.IntegerAlign, 16),
-                                                    DL.AlignmentInfo 16 (Just 16)),
-                                                   ((DL.IntegerAlign, 32),
-                                                    DL.AlignmentInfo 32 (Just 32)),
-                                                   ((DL.IntegerAlign, 64),
-                                                    DL.AlignmentInfo 64 (Just 64)),
-                                                   ((DL.FloatAlign, 32),
-                                                    DL.AlignmentInfo 32 (Just 32)),
-                                                   ((DL.FloatAlign, 64),
-                                                    DL.AlignmentInfo 64 (Just 64)),
-                                                   ((DL.VectorAlign, 64),
-                                                    DL.AlignmentInfo 64 (Just 64)),
-                                                   ((DL.VectorAlign, 128),
-                                                    DL.AlignmentInfo 64 (Just 128)),
-                                                   ((DL.AggregateAlign, 0),
-                                                    DL.AlignmentInfo 0 (Just 64))],
-                       DL.nativeSizes = Just (Set.fromList [32])
-                     }
+                       DL.pointerLayouts =
+                           Map.fromList [(AS.AddrSpace 0,
+                                          (32, DL.AlignmentInfo 32 (Just 32)))],
+                       DL.typeLayouts =
+                           Map.fromList [((DL.IntegerAlign, 1),
+                                          DL.AlignmentInfo 8 (Just 8)),
+                                         ((DL.IntegerAlign, 8),
+                                          DL.AlignmentInfo 8 (Just 8)),
+                                         ((DL.IntegerAlign, 16),
+                                          DL.AlignmentInfo 16 (Just 16)),
+                                         ((DL.IntegerAlign, 32),
+                                          DL.AlignmentInfo 32 (Just 32)),
+                                         ((DL.IntegerAlign, 64),
+                                          DL.AlignmentInfo 64 (Just 64)),
+                                         ((DL.FloatAlign, 32),
+                                          DL.AlignmentInfo 32 (Just 32)),
+                                         ((DL.FloatAlign, 64),
+                                          DL.AlignmentInfo 64 (Just 64)),
+                                         ((DL.VectorAlign, 64),
+                                          DL.AlignmentInfo 64 (Just 64)),
+                                         ((DL.VectorAlign, 128),
+                                          DL.AlignmentInfo 64 (Just 128)),
+                                         ((DL.AggregateAlign, 0),
+                                          DL.AlignmentInfo 0 (Just 64))],
+                           DL.nativeSizes = Just (Set.fromList [32])
+                        }
       Platform { platformArch = ArchARM {}, platformOS = OSiOS } ->
           DL.DataLayout { DL.endianness = Just DL.LittleEndian,
                        DL.stackAlignment = Nothing, -- default stack alignment
-                       DL.pointerLayouts = Map.fromList [(AS.AddrSpace 0,
-                                                          (32, DL.AlignmentInfo 32 (Just 32)))],
-                       DL.typeLayouts = Map.fromList [((DL.IntegerAlign, 1),
-                                                       DL.AlignmentInfo 8 (Just 8)),
-                                                   ((DL.IntegerAlign, 8),
-                                                    DL.AlignmentInfo 8 (Just 8)),
-                                                   ((DL.IntegerAlign, 16),
-                                                    DL.AlignmentInfo 16 (Just 16)),
-                                                   ((DL.IntegerAlign, 32),
-                                                    DL.AlignmentInfo 32 (Just 32)),
-                                                   ((DL.IntegerAlign, 64),
-                                                    DL.AlignmentInfo 64 (Just 64)),
-                                                   ((DL.FloatAlign, 32),
-                                                    DL.AlignmentInfo 32 (Just 32)),
-                                                   ((DL.FloatAlign, 64),
-                                                    DL.AlignmentInfo 64 (Just 64)),
-                                                   ((DL.VectorAlign, 64),
-                                                    DL.AlignmentInfo 64 (Just 64)),
-                                                   ((DL.VectorAlign, 128),
-                                                    DL.AlignmentInfo 64 (Just 128)),
-                                                   ((DL.AggregateAlign, 0),
-                                                    DL.AlignmentInfo 0 (Just 64))],
-                       DL.nativeSizes = Just (Set.fromList [32])
-                     }
+                       DL.pointerLayouts =
+                           Map.fromList [(AS.AddrSpace 0,
+                                          (32, DL.AlignmentInfo 32 (Just 32)))],
+                       DL.typeLayouts =
+                           Map.fromList [((DL.IntegerAlign, 1),
+                                          DL.AlignmentInfo 8 (Just 8)),
+                                         ((DL.IntegerAlign, 8),
+                                          DL.AlignmentInfo 8 (Just 8)),
+                                         ((DL.IntegerAlign, 16),
+                                          DL.AlignmentInfo 16 (Just 16)),
+                                         ((DL.IntegerAlign, 32),
+                                          DL.AlignmentInfo 32 (Just 32)),
+                                         ((DL.IntegerAlign, 64),
+                                          DL.AlignmentInfo 64 (Just 64)),
+                                         ((DL.FloatAlign, 32),
+                                          DL.AlignmentInfo 32 (Just 32)),
+                                         ((DL.FloatAlign, 64),
+                                          DL.AlignmentInfo 64 (Just 64)),
+                                         ((DL.VectorAlign, 64),
+                                          DL.AlignmentInfo 64 (Just 64)),
+                                         ((DL.VectorAlign, 128),
+                                          DL.AlignmentInfo 64 (Just 128)),
+                                         ((DL.AggregateAlign, 0),
+                                          DL.AlignmentInfo 0 (Just 64))],
+                           DL.nativeSizes = Just (Set.fromList [32])
+                        }
       _ ->
           DL.defaultDataLayout
 
@@ -535,7 +569,8 @@ platformToTargetTriple platform =
 platformToTargetMachine :: Platform -> IO T.Target
 platformToTargetMachine platform =
     do T.initializeAllTargets --must call this before lookupTarget
-       t <- Err.runErrorT $ T.lookupTarget Nothing (platformToTargetTriple platform)
+       t <- Err.runErrorT $
+              T.lookupTarget Nothing (platformToTargetTriple platform)
        case t of
          Left err -> error err
          Right (target, warn) -> return target
@@ -551,9 +586,11 @@ llvmVarToConstant :: LlvmVar -> C.Constant
 llvmVarToConstant v@(LMGlobalVar _ _ _ _ _ _) =
     C.GlobalReference (llvmVarToName v)
 llvmVarToConstant v@(LMLocalVar _ _) =
-    error "llvmVarToConstant: Can't create a constant from an (unnamed) local var"
+    error $ "llvmVarToConstant: Can't create a constant from an" ++
+            " (unnamed) local var"
 llvmVarToConstant v@(LMNLocalVar _ _) =
-    error "llvmVarToConstant: Can't create a constant from a (named) local var"
+    error $ "llvmVarToConstant: Can't create a constant from a" ++
+            " (named) local var"
 llvmVarToConstant v@(LMLitVar lit) = llvmLitToConstant lit
 
 mkName :: LMString -> AST.Name
@@ -568,10 +605,12 @@ metaExprToMetadataNode (MetaVar    v ) =
     case v of
       LMGlobalVar name LMMetadata link sec ali con ->
           MetadataNode [Just (ConstantOperand (llvmVarToConstant v))]
-      LMLocalVar uniq LMMetadata -> error $ "metaExprToMetadataNode" ++ (show uniq)
---          MetadataNode [Just (LocalReference (llvmVarToName v))]
-      LMNLocalVar str LMMetadata -> error $ "metaExprToMetadataNode" ++ (unpackFS str)
---          MetadataNode [Just (LocalReference (llvmVarToName v))]
+      LMLocalVar uniq LMMetadata ->
+          MetadataNode [Just (LocalReference (llvmVarToName v))]
+      -- error $ "metaExprToMetadataNode" ++ (show uniq)
+      LMNLocalVar str LMMetadata ->
+          MetadataNode [Just (LocalReference (llvmVarToName v))]
+      -- error $ "metaExprToMetadataNode" ++ (unpackFS str)
       _ -> error "metaExprToMetadataNode: variable is not of type LMMetadata"
 metaExprToMetadataNode (MetaStruct es) =
     MetadataNode $ map (Just . metaExprToOperand) es
@@ -626,9 +665,9 @@ llvmExpressionToConstant expr =
       AbsSyn.Phi tp precessors      ->
           error "llvmExpressionToConstant: phi is not a constant expression."
       Asm        asm c ty v se sk   ->
-          error "llvmExpressionToConstant: Assembly is not a constant expression."
+          error "llvmExpressionToConstant: Assembly is not a const expr."
       MExpr      meta e             ->
-          error "llvmExpressionToConstant: a meta expris not a constant expression."
+          error "llvmExpressionToConstant: a meta expris not a const expr."
 
 llvmCompareToConstant :: LlvmCmpOp -> LlvmVar -> LlvmVar -> C.Constant
 llvmCompareToConstant op left right =
@@ -645,7 +684,8 @@ llvmExtractToConstant vec idx =
 
 llvmInsertToConstant :: LlvmVar -> LlvmVar -> LlvmVar -> C.Constant
 llvmInsertToConstant vec elt idx =
-    C.InsertElement (llvmVarToConstant vec) (llvmVarToConstant elt) (llvmVarToConstant idx)
+    C.InsertElement (llvmVarToConstant vec)
+         (llvmVarToConstant elt) (llvmVarToConstant idx)
 
 llvmGetElemPtrToConstant :: Bool -> LlvmVar -> [LlvmVar] -> C.Constant
 llvmGetElemPtrToConstant inb ptr indexes =
@@ -680,7 +720,8 @@ metaExprToOperand :: MetaExpr -> Operand
 metaExprToOperand (MetaStr    s ) =
     MetadataStringOperand (unpackFS s)
 metaExprToOperand (MetaNode   n ) =
-    MetadataNodeOperand (MetadataNodeReference (MetadataNodeID (fromIntegral n)))
+    MetadataNodeOperand
+      (MetadataNodeReference (MetadataNodeID (fromIntegral n)))
 -- This seems to match up better with what is produced by GHC
 metaExprToOperand (MetaVar    v ) = llvmVarToOperand v
 --    MetadataNodeOperand (MetadataNode [Just (llvmVarToOperand v)])

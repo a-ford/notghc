@@ -3,7 +3,8 @@
 --
 
 module LlvmCodeGen.Output (
-        outputLlvmData, outputLlvmCmmDecl, outputInfoTable, infoSection, iTableSuf
+        outputLlvmData, outputLlvmCmmDecl, outputInfoTable, infoSection,
+        iTableSuf
     ) where
 
 #include "HsVersions.h"
@@ -44,8 +45,9 @@ outputLlvmCmmDecl _ (CmmData _ lmdata)
 outputLlvmCmmDecl count (CmmProc mb_info entry_lbl live (ListGraph blks))
   = do (idoc, ivar) <- case mb_info of
                         Nothing -> return ([], [])
-                        Just (Statics info_lbl dat)
-                         -> outputInfoTable count info_lbl (Statics entry_lbl dat)
+                        Just (Statics info_lbl dat) ->
+                            outputInfoTable count info_lbl
+                                    (Statics entry_lbl dat)
        let sec = mkLayoutSection (count + 1)
            (lbl',sec') = case mb_info of
                            Nothing                   -> (entry_lbl, Nothing)
@@ -61,7 +63,8 @@ outputLlvmCmmDecl count (CmmProc mb_info entry_lbl live (ListGraph blks))
        return (idoc ++ [outputLlvmFunction fun], ivar)
 
 -- | Output CmmStatic
-outputInfoTable :: Int -> CLabel -> CmmStatics -> LlvmM ([Definition], [LlvmVar])
+outputInfoTable ::  Int -> CLabel -> CmmStatics ->
+                    LlvmM ([Definition], [LlvmVar])
 outputInfoTable count info_lbl stat
   = do (ldata, ltypes) <- genLlvmData (Text, stat)
 
@@ -102,4 +105,3 @@ mkLayoutSection n
 -- be unique since we process the assembly pattern matching this.
 infoSection :: String
 infoSection = "X98A__STRIP,__me"
-

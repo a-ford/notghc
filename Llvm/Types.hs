@@ -134,9 +134,12 @@ instance Outputable LlvmVar where
   ppr (x         )  = ppr (getVarType x) <+> ppName x
 
 instance Show LlvmVar where
-  show (LMGlobalVar name ty link sec ali con) = "global " ++ (unpackFS name) ++ " Ty: " ++ (show ty)
-  show (LMLocalVar uniq ty) = "unnamed local " ++ (show uniq) ++ " Ty: " ++ (show ty)
-  show (LMNLocalVar name ty) = "named local " ++ (unpackFS name) ++ " Ty: " ++ (show ty)
+  show (LMGlobalVar name ty link sec ali con) =
+      "global " ++ (unpackFS name) ++ " Ty: " ++ (show ty)
+  show (LMLocalVar uniq ty) =
+      "unnamed local " ++ (show uniq) ++ " Ty: " ++ (show ty)
+  show (LMNLocalVar name ty) =
+      "named local " ++ (unpackFS name) ++ " Ty: " ++ (show ty)
   show (LMLitVar lit) = "Lit Var: " ++ show lit
 
 -- | Llvm Literal Data.
@@ -209,7 +212,8 @@ instance Outputable LlvmStatic where
   ppr (LMSub s1 s2)
       = pprStaticArith s1 s2 (sLit "sub") (sLit "fsub") "LMSub"
 
-pprStaticArith :: LlvmStatic -> LlvmStatic -> LitString -> LitString -> String -> SDoc
+pprStaticArith ::  LlvmStatic -> LlvmStatic -> LitString ->
+                   LitString -> String -> SDoc
 pprStaticArith s1 s2 int_op float_op op_name =
   let ty1 = getStatType s1
       op  = if isFloat ty1 then float_op else int_op
@@ -217,7 +221,8 @@ pprStaticArith s1 s2 int_op float_op op_name =
      then ppr ty1 <+> ptext op <+> lparen <> ppr s1 <> comma <> ppr s2 <> rparen
      else sdocWithDynFlags $ \dflags ->
             error $ op_name ++ " with different types! s1: "
-                    ++ showSDoc dflags (ppr s1) ++ ", s2: " ++ showSDoc dflags (ppr s2)
+                    ++ showSDoc dflags (ppr s1) ++ ", s2: " ++
+                       showSDoc dflags (ppr s2)
 
 -- -----------------------------------------------------------------------------
 -- ** Operations on LLVM Basic Types and Variables
@@ -252,7 +257,8 @@ ppLit (LMIntLit   i _       )  = ppr ((fromInteger i)::Int)
 ppLit (LMFloatLit r LMFloat )  = ppFloat $ narrowFp r
 ppLit (LMFloatLit r LMDouble)  = ppDouble r
 ppLit f@(LMFloatLit _ _)       = sdocWithDynFlags (\dflags ->
-                                   error $ "Can't print this float literal!" ++ showSDoc dflags (ppr f))
+                                   error $ "Can't print this float literal!" ++
+                                           showSDoc dflags (ppr f))
 ppLit (LMVectorLit ls  )       = char '<' <+> ppCommaJoin ls <+> char '>'
 ppLit (LMNullLit _     )       = text "null"
 ppLit (LMUndefLit _    )       = text "undef"
@@ -366,7 +372,8 @@ llvmWidthInBits _      (LMFloat128)    = 128
 -- it points to. We will go with the former for now.
 -- PMW: At least judging by the way LLVM outputs constants, pointers
 --      should use the former, but arrays the latter.
-llvmWidthInBits dflags (LMPointer _)   = llvmWidthInBits dflags (llvmWord dflags)
+llvmWidthInBits dflags (LMPointer _)   =
+    llvmWidthInBits dflags (llvmWord dflags)
 llvmWidthInBits dflags (LMArray n t)   = n * llvmWidthInBits dflags t
 llvmWidthInBits dflags (LMVector n ty) = n * llvmWidthInBits dflags ty
 llvmWidthInBits _      LMLabel         = 0
@@ -374,7 +381,8 @@ llvmWidthInBits _      LMVoid          = 0
 llvmWidthInBits dflags (LMStruct tys)  = sum $ map (llvmWidthInBits dflags) tys
 llvmWidthInBits _      (LMFunction  _) = 0
 llvmWidthInBits dflags (LMAlias (_,t)) = llvmWidthInBits dflags t
-llvmWidthInBits _      LMMetadata      = panic "llvmWidthInBits: Meta-data has no runtime representation!"
+llvmWidthInBits _      LMMetadata      =
+    panic "llvmWidthInBits: Meta-data has no runtime representation!"
 
 
 -- -----------------------------------------------------------------------------
@@ -849,11 +857,11 @@ ppDouble d
 
 -- Note [LLVM Float Types]
 -- ~~~~~~~~~~~~~~~~~~~~~~~
--- We use 'ppDouble' for both printing Float and Double floating point types. This is
--- as LLVM expects all floating point constants (single & double) to be in IEEE
--- 754 Double precision format. However, for single precision numbers (Float)
--- they should be *representable* in IEEE 754 Single precision format. So the
--- easiest way to do this is to narrow and widen again.
+-- We use 'ppDouble' for both printing Float and Double floating point types.
+-- This is as LLVM expects all floating point constants (single & double) to be
+-- in IEEE 754 Double precision format. However, for single precision numbers
+-- (Float) they should be *representable* in IEEE 754 Single precision format.
+-- So the easiest way to do this is to narrow and widen again.
 -- (i.e., Double -> Float -> Double). We must be careful doing this that GHC
 -- doesn't optimize that away.
 

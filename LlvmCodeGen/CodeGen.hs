@@ -124,7 +124,7 @@ stmtToInstrs stmt = case stmt of
 getInstrinct2 :: LMString -> LlvmType -> LlvmM ExprData
 getInstrinct2 fname fty@(LMFunction funSig) = do
 
-    let fv   = LMGlobalVar fname fty (funcLinkage funSig) Nothing Nothing Constant
+    let fv = LMGlobalVar fname fty (funcLinkage funSig) Nothing Nothing Constant
 
     fn <- funLookup fname
     tops <- case fn of
@@ -156,7 +156,8 @@ barrier = do
 oldBarrier :: LlvmM StmtData
 oldBarrier = do
 
-    (fv, _, tops) <- getInstrinct (fsLit "llvm.memory.barrier") LMVoid [i1, i1, i1, i1, i1]
+    (fv, _, tops) <-
+        getInstrinct (fsLit "llvm.memory.barrier") LMVoid [i1, i1, i1, i1, i1]
 
     let args = [lmTrue, lmTrue, lmTrue, lmTrue, lmTrue]
     let s1 = Expr $ Call StdCall fv args llvmStdFunAttrs
@@ -216,12 +217,14 @@ genCall t@(PrimTarget (MO_Prefetch_Data localityInt)) [] args
 
     trash <- getTrashStmts
     let argSuffix | ver <= 29  = [mkIntLit i32 0, mkIntLit i32 localityInt]
-                  | otherwise  = [mkIntLit i32 0, mkIntLit i32 localityInt, mkIntLit i32 1]
+                  | otherwise  =
+                      [mkIntLit i32 0, mkIntLit i32 localityInt, mkIntLit i32 1]
         call = Expr $ Call StdCall fptr (argVars' ++ argSuffix) []
         stmts = stmts1 `appOL` stmts2 `appOL` stmts3
                 `appOL` trash `snocOL` call
     return (stmts, top1 ++ top2)
-  | otherwise = panic $ "prefetch locality level integer must be between 0 and 3, given: " ++ (show localityInt)
+  | otherwise = panic $ "prefetch locality level integer must be between" ++
+                        " 0 and 3, given: " ++ (show localityInt)
 
 -- Handle PopCnt and BSwap that need to only convert arg and return types
 genCall t@(PrimTarget (MO_PopCnt w)) dsts args =
@@ -241,8 +244,10 @@ genCall t@(PrimTarget op) [] args'
         (isVolTy, isVolVal)
               | ver >= 28       = ([i1], [mkIntLit i1 0])
               | otherwise       = ([], [])
-        argTy | op == MO_Memset = [i8Ptr, i8,    llvmWord dflags, i32] ++ isVolTy
-              | otherwise       = [i8Ptr, i8Ptr, llvmWord dflags, i32] ++ isVolTy
+        argTy | op == MO_Memset =
+                  [i8Ptr, i8,    llvmWord dflags, i32] ++ isVolTy
+              | otherwise       =
+                  [i8Ptr, i8Ptr, llvmWord dflags, i32] ++ isVolTy
         funTy = \name -> LMFunction $ LlvmFunctionDecl name ExternallyVisible
                              CC_Ccc LMVoid FixedArgs (tysToParams argTy) Nothing
 
@@ -297,8 +302,10 @@ genCall target res args = do
                                  _          -> CC_Ccc
                  CCallConv    -> CC_Ccc
                  CApiConv     -> CC_Ccc
-                 PrimCallConv -> panic "LlvmCodeGen.CodeGen.genCall: PrimCallConv"
-                 JavaScriptCallConv -> panic "LlvmCodeGen.CodeGen.genCall: JavaScriptCallConv"
+                 PrimCallConv ->
+                     panic "LlvmCodeGen.CodeGen.genCall: PrimCallConv"
+                 JavaScriptCallConv ->
+                     panic "LlvmCodeGen.CodeGen.genCall: JavaScriptCallConv"
 
             PrimTarget   _ -> CC_Ccc
 
@@ -350,8 +357,9 @@ genCall target res args = do
             (v1, s1) <- doExpr retTy $ Call ccTy fptr argVars fnAttrs
             -- get the return register
             let ret_reg [reg] = reg
-                ret_reg t = panic $ "genCall: Bad number of registers! Can only handle"
-                                ++ " 1, given " ++ show (length t) ++ "."
+                ret_reg t =
+                    panic $ "genCall: Bad number of registers! Can only handle"
+                              ++ " 1, given " ++ show (length t) ++ "."
             let creg = ret_reg res
             vreg <- getCmmReg (CmmLocal creg)
             let allStmts = stmts `snocOL` s1
@@ -478,7 +486,8 @@ castVar v t | getVarType v == t
                       (LMInt n, LMInt m)
                           -> if n < m then LM_Sext else LM_Trunc
                       (vt, _) | isFloat vt && isFloat t
-                          -> if llvmWidthInBits dflags vt < llvmWidthInBits dflags t
+                         -> if (llvmWidthInBits dflags vt <
+                                                llvmWidthInBits dflags t)
                                 then LM_Fpext else LM_Fptrunc
                       (vt, _) | isInt vt && isFloat t       -> LM_Sitofp
                       (vt, _) | isFloat vt && isInt t       -> LM_Fptosi
@@ -488,7 +497,8 @@ castVar v t | getVarType v == t
                       (vt, _) | isVector vt && isVector t   -> LM_Bitcast
 
                       (vt, _) -> panic $ "castVars: Can't cast this type ("
-                                  ++ showSDoc dflags (ppr vt) ++ ") to (" ++ showSDoc dflags (ppr t) ++ ")"
+                                  ++ showSDoc dflags (ppr vt) ++ ") to (" ++
+                                     showSDoc dflags (ppr t) ++ ")"
                  doExpr t $ Cast op v t
 
 
@@ -499,9 +509,11 @@ cmmPrimOpFunctions mop = do
   ver <- getLlvmVer
   dflags <- getDynFlags
   let intrinTy1 = (if ver >= 28
-                       then "p0i8.p0i8." else "") ++ showSDoc dflags (ppr $ llvmWord dflags)
+                       then "p0i8.p0i8." else "") ++
+                  showSDoc dflags (ppr $ llvmWord dflags)
       intrinTy2 = (if ver >= 28
-                       then "p0i8." else "") ++ showSDoc dflags (ppr $ llvmWord dflags)
+                       then "p0i8." else "") ++
+                  showSDoc dflags (ppr $ llvmWord dflags)
       unsupported = panic ("cmmPrimOpFunctions: " ++ show mop
                         ++ " not supported here")
 
@@ -544,8 +556,10 @@ cmmPrimOpFunctions mop = do
     MO_Memmove    -> fsLit $ "llvm.memmove." ++ intrinTy1
     MO_Memset     -> fsLit $ "llvm.memset."  ++ intrinTy2
 
-    (MO_PopCnt w) -> fsLit $ "llvm.ctpop."  ++ showSDoc dflags (ppr $ widthToLlvmInt w)
-    (MO_BSwap w)  -> fsLit $ "llvm.bswap."  ++ showSDoc dflags (ppr $ widthToLlvmInt w)
+    (MO_PopCnt w) ->
+        fsLit $ "llvm.ctpop."  ++ showSDoc dflags (ppr $ widthToLlvmInt w)
+    (MO_BSwap w)  ->
+        fsLit $ "llvm.bswap."  ++ showSDoc dflags (ppr $ widthToLlvmInt w)
 
     (MO_Prefetch_Data _ )-> fsLit "llvm.prefetch"
 
@@ -660,7 +674,8 @@ genStore_fast addr r n val
   = do dflags <- getDynFlags
        (gv, grt, s1) <- getCmmRegVal (CmmGlobal r)
        meta          <- getTBAARegMeta r
-       let (ix,rem) = n `divMod` ((llvmWidthInBits dflags . pLower) grt  `div` 8)
+       let(ix,rem) =
+              n `divMod` ((llvmWidthInBits dflags . pLower) grt  `div` 8)
        case isPointer grt && rem == 0 of
             True -> do
                 (vval,  stmts, top) <- exprToVar val
@@ -716,8 +731,8 @@ genStore_slow addr val meta = do
             pprPanic "genStore: ptr not right type!"
                     (PprCmm.pprExpr addr <+> text (
                         "Size of Ptr: " ++ show (llvmPtrBits dflags) ++
-                        ", Size of var: " ++ show (llvmWidthInBits dflags other) ++
-                        ", Var: " ++ showSDoc dflags (ppr vaddr)))
+                        ", Size of var: " ++ show (llvmWidthInBits dflags other)
+                        ++ ", Var: " ++ showSDoc dflags (ppr vaddr)))
 
 
 -- | Unconditional branch
@@ -740,7 +755,8 @@ genCondBranch cond idT idF = do
             return (stmts `snocOL` s1, top)
         else do
             dflags <- getDynFlags
-            panic $ "genCondBranch: Cond expr not bool! (" ++ showSDoc dflags (ppr vc) ++ ")"
+            panic $ "genCondBranch: Cond expr not bool! (" ++
+                  showSDoc dflags (ppr vc) ++ ")"
 
 {- Note [Literals and branch conditions]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -860,7 +876,9 @@ exprToVarOpt opt e = case e of
              True  -> do
                  -- Cmm wants the value, so pointer types must be cast to ints
                  dflags <- getDynFlags
-                 (v2, s2) <- doExpr (llvmWord dflags) $ Cast LM_Ptrtoint v1 (llvmWord dflags)
+                 (v2, s2) <-
+                     doExpr (llvmWord dflags) $
+                       Cast LM_Ptrtoint v1 (llvmWord dflags)
                  return (v2, s1 `snocOL` s2, [])
 
              False -> return (v1, s1, [])
@@ -1039,7 +1057,9 @@ genMachOp_fast opt op r n e
        case isPointer grt && rem == 0 of
             True -> do
                 (ptr, s2) <- doExpr grt $ GetElemPtr True gv [toI32 ix]
-                (var, s3) <- doExpr (llvmWord dflags) $ Cast LM_Ptrtoint ptr (llvmWord dflags)
+                (var, s3) <-
+                  doExpr (llvmWord dflags) $
+                         Cast LM_Ptrtoint ptr (llvmWord dflags)
                 return (var, s1 `snocOL` s2 `snocOL` s3, [])
 
             False -> genMachOp_slow opt op e
@@ -1149,11 +1169,15 @@ genMachOp_slow opt op [x, y] = case op of
 
     MO_VU_Quot l w -> genCastBinMach (LMVector l (widthToLlvmInt w)) LM_MO_UDiv
     MO_VU_Rem  l w -> genCastBinMach (LMVector l (widthToLlvmInt w)) LM_MO_URem
- 
-    MO_VF_Add  l w -> genCastBinMach (LMVector l (widthToLlvmFloat w)) LM_MO_FAdd
-    MO_VF_Sub  l w -> genCastBinMach (LMVector l (widthToLlvmFloat w)) LM_MO_FSub
-    MO_VF_Mul  l w -> genCastBinMach (LMVector l (widthToLlvmFloat w)) LM_MO_FMul
-    MO_VF_Quot l w -> genCastBinMach (LMVector l (widthToLlvmFloat w)) LM_MO_FDiv
+
+    MO_VF_Add  l w ->
+        genCastBinMach (LMVector l (widthToLlvmFloat w)) LM_MO_FAdd
+    MO_VF_Sub  l w ->
+        genCastBinMach (LMVector l (widthToLlvmFloat w)) LM_MO_FSub
+    MO_VF_Mul  l w ->
+        genCastBinMach (LMVector l (widthToLlvmFloat w)) LM_MO_FMul
+    MO_VF_Quot l w ->
+        genCastBinMach (LMVector l (widthToLlvmFloat w)) LM_MO_FDiv
 
     MO_Not _       -> panicOp
     MO_S_Neg _     -> panicOp
@@ -1186,7 +1210,8 @@ genMachOp_slow opt op [x, y] = case op of
                             top1 ++ top2)
 
                 else do
-                    -- Error. Continue anyway so we can debug the generated ll file.
+                    -- Error. Continue anyway so we can debug
+                    -- the generated ll file.
                     dflags <- getDynFlags
                     let style = mkCodeStyle CStyle
                         toString doc = renderWithStyle dflags doc style
@@ -1259,7 +1284,8 @@ genMachOp_slow opt op [x, y] = case op of
                         top1 ++ top2)
 
                 else
-                    panic $ "isSMulOK: Not bit type! (" ++ showSDoc dflags (ppr word) ++ ")"
+                    panic $ "isSMulOK: Not bit type! (" ++
+                          showSDoc dflags (ppr word) ++ ")"
 
         panicOp = panic $ "LLVM.CodeGen.genMachOp_slow: unary op encountered"
                        ++ "with two arguments! (" ++ show op ++ ")"
@@ -1356,7 +1382,8 @@ genLoad_slow e ty meta = do
                      pprPanic "exprToVar: CmmLoad expression is not right type!"
                         (PprCmm.pprExpr e <+> text (
                             "Size of Ptr: " ++ show (llvmPtrBits dflags) ++
-                            ", Size of var: " ++ show (llvmWidthInBits dflags other) ++
+                            ", Size of var: " ++
+                            show (llvmWidthInBits dflags other) ++
                             ", Var: " ++ showSDoc dflags (ppr iptr)))
 
 
@@ -1369,7 +1396,8 @@ getCmmReg (CmmLocal (LocalReg un _))
        dflags <- getDynFlags
        case exists of
          Just ety -> return (LMLocalVar un $ pLift ety)
-         Nothing  -> fail $ "getCmmReg: Cmm register " ++ showSDoc dflags (ppr un) ++ " was not allocated!"
+         Nothing  -> fail $ "getCmmReg: Cmm register " ++
+                     showSDoc dflags (ppr un) ++ " was not allocated!"
            -- This should never happen, as every local variable should
            -- have been assigned a value at some point, triggering
            -- "funPrologue" to allocate it on the stack.
@@ -1379,7 +1407,8 @@ getCmmReg (CmmGlobal g)
        dflags <- getDynFlags
        if onStack
          then return (lmGlobalRegVar dflags g)
-         else fail $ "getCmmReg: Cmm register " ++ showSDoc dflags (ppr g) ++ " not stack-allocated!"
+         else fail $ "getCmmReg: Cmm register " ++ showSDoc dflags (ppr g) ++
+                  " not stack-allocated!"
 
 -- | Return the value of a given register, as well as its type. Might
 -- need to be load from stack.
@@ -1503,9 +1532,11 @@ funPrologue live cmmBlocks = do
       getAssignedRegs (CmmAssign reg _)  = [reg]
       -- Calls will trash all registers. Unfortunately, this needs them to
       -- be stack-allocated in the first place.
-      getAssignedRegs (CmmUnsafeForeignCall _ rs _) = map CmmGlobal trash ++ map CmmLocal rs
+      getAssignedRegs (CmmUnsafeForeignCall _ rs _) =
+          map CmmGlobal trash ++ map CmmLocal rs
       getAssignedRegs _                  = []
-      getRegsBlock (_, body, _)          = concatMap getAssignedRegs $ blockToList body
+      getRegsBlock (_, body, _)          =
+          concatMap getAssignedRegs $ blockToList body
       assignedRegs = nub $ concatMap (getRegsBlock . blockSplit) cmmBlocks
       isLive r     = r `elem` alwaysLive || r `elem` live
 

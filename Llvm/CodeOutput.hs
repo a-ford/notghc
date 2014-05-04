@@ -35,7 +35,8 @@ outputLlvmModule (LlvmModule comments aliases meta globals decls funcs) dflags
     = Module {
         moduleName = "<module-name-here>",
         moduleDataLayout = Just (platformToDataLayout (targetPlatform dflags)),
-        moduleTargetTriple = Just (platformToTargetTriple (targetPlatform dflags)),
+        moduleTargetTriple =
+            Just (platformToTargetTriple (targetPlatform dflags)),
         moduleDefinitions = concat [alis, metas, glos, decs, funs]
       }
     where alis  = outputLlvmAliases aliases
@@ -90,7 +91,8 @@ outputLlvmAliases alis = map outputLlvmAlias alis
 
 -- | Output out an LLVM type alias.
 outputLlvmAlias :: LlvmAlias -> Definition
-outputLlvmAlias (name, ty) = TypeDefinition (mkName name) (Just (llvmTypeToType ty))
+outputLlvmAlias (name, ty) =
+    TypeDefinition (mkName name) (Just (llvmTypeToType ty))
 
 -- | Output out a list of LLVM metadata.
 outputLlvmMetas :: [MetaDecl] -> [Definition]
@@ -98,8 +100,12 @@ outputLlvmMetas metas = map (outputLlvmMeta ) metas
 
 -- | Output out an LLVM metadata definition
 outputLlvmMeta :: MetaDecl -> Definition
-outputLlvmMeta  (MetaUnamed n m) = MetadataNodeDefinition (MetadataNodeID (fromIntegral n)) [(Just (outputLlvmMetaExpr  m))]
-outputLlvmMeta  (MetaNamed n m) = NamedMetadataDefinition (unpackFS n) (map (MetadataNodeID . fromIntegral) m)
+outputLlvmMeta  (MetaUnamed n m) =
+    MetadataNodeDefinition (MetadataNodeID (fromIntegral n))
+                               [(Just (outputLlvmMetaExpr  m))]
+outputLlvmMeta  (MetaNamed n m) =
+    NamedMetadataDefinition (unpackFS n)
+                                (map (MetadataNodeID . fromIntegral) m)
 
 -- | Output an LLVM metadata value.
 outputLlvmMetaExpr :: MetaExpr -> Operand
@@ -112,14 +118,15 @@ outputLlvmFunctions  funcs = map outputLlvmFunction funcs
 -- | Output out a function definition.
 -- body = [LlvmBlock] = [LlvmBlock {LlvmBlockId [LlvmStatement]}]
 outputLlvmFunction :: LlvmFunction -> Definition
-outputLlvmFunction  (LlvmFunction
-                       dec@(LlvmFunctionDecl name link cc retTy vArgs params ali)
-                       args attrs sec body)
+outputLlvmFunction
+  (LlvmFunction dec@(LlvmFunctionDecl name link cc retTy vArgs params ali)
+                args attrs sec body)
     =
       let baseDecl = outputLlvmFunctionDeclBase dec
           argNames = map (Left . unpackFS) args
           parameters = if (length argNames) == (length params)
-                       then zipWith llvmParameterToNamedParameter params argNames
+                       then zipWith llvmParameterToNamedParameter
+                                      params argNames
                        else
                            error $ "outputLlvmFunction: Number of arg names" ++
                                    " supplied does not match type signature."
@@ -143,12 +150,14 @@ outputLlvmFunctionDecl dec = GlobalDefinition (outputLlvmFunctionDeclBase dec)
 
 -- | Output a function declaration, but don't wrap it as a Definition
 outputLlvmFunctionDeclBase :: LlvmFunctionDecl -> Global
-outputLlvmFunctionDeclBase dec@(LlvmFunctionDecl name link cc retTy vArgs params ali)
+outputLlvmFunctionDeclBase
+  (LlvmFunctionDecl name link cc retTy vArgs params ali)
     =
       let ali' = maybe 0 fromIntegral ali
           -- Function declarations have no argument names,
           -- we only care about the types here.
-          parameters = zipWith llvmParameterToNamedParameter params (repeat (Left ""))
+          parameters = zipWith llvmParameterToNamedParameter
+                                 params (repeat (Left ""))
       in functionDefaults {
                G.linkage = llvmLinkageTypeToLinkage link,
                G.callingConvention = llvmCallConventionToCallingConvention cc,
@@ -180,8 +189,10 @@ outputLlvmBlock  (LlvmBlock blockId stmts) =
     BasicBlock name instrs (head' terminator)
         where
           name = Name (show blockId)
-          -- terminator had better be a singleton list here, else the block is invalid
-          (instrs, terminator) = partitionEithers (map outputLlvmStatement stmts)
+          -- terminator had better be a singleton list here,
+          -- else the block is invalid
+          (instrs, terminator) =
+              partitionEithers (map outputLlvmStatement stmts)
 
 {-  let isLabel (MkLabel _) = True
       isLabel _           = False
@@ -198,30 +209,35 @@ outputLlvmBlock  (LlvmBlock blockId stmts) =
 --outputLlvmBlockLabel blockId = Name (show blockId)
 
 -- | Output an LLVM statement.
-outputLlvmStatement :: LlvmStatement -> Either (Named Instruction) (Named Terminator)
+outputLlvmStatement ::  LlvmStatement ->
+                        Either (Named Instruction) (Named Terminator)
 outputLlvmStatement  stmt =
   case stmt of
     MetaStmt    meta s        -> outputMetaStatement  meta s
     _                         -> outputMetaStatement  [] stmt
 
--- | Output an LLVM statement with metadata annotations.
--- | By making instructions and terminators named, we are able to do assignments.
-outputMetaStatement :: [MetaAnnot] -> LlvmStatement -> Either (Named Instruction) (Named Terminator)
+-- Output an LLVM statement with metadata annotations.
+-- By making instructions and terminators named, we are able to do assignments.
+outputMetaStatement ::  [MetaAnnot] -> LlvmStatement ->
+                        Either (Named Instruction) (Named Terminator)
 outputMetaStatement  meta stmt =
     case stmt of
-      Assignment  dst expr      -> Left $ outputAssignment dst expr meta    -- I
-      AbsSyn.Fence st ord       -> Left $ outputFence st ord meta           -- I
-      Branch      target        -> Right $ outputBranch target meta         -- T
-      BranchIf    cond ifT ifF  -> Right $ outputBranchIf cond ifT ifF meta -- T
+      Assignment  dst expr      -> Left $ outputAssignment dst expr meta
+      AbsSyn.Fence st ord       -> Left $ outputFence st ord meta
+      Branch      target        -> Right $ outputBranch target meta
+      BranchIf    cond ifT ifF  -> Right $ outputBranchIf cond ifT ifF meta
+      -- We don't need comments
       Comment     comments      ->
-          error "outputMetaStatement: Can't generate comments." -- We don't need comments
+          error "outputMetaStatement: Can't generate comments."
+      -- We don't need labels either
       MkLabel     label         ->
-          error "outputMetaStatement: Can't generate comments." -- We don't need labels either
-      AbsSyn.Store value ptr    -> Left $ outputStore value ptr meta        -- I
-      AbsSyn.Switch scrut def tgs -> Right $ outputSwitch scrut def tgs meta  -- T
-      Return      result        -> Right $ outputReturn result meta         -- T
-      Expr        expr          -> Left $ outputMetaExpr meta expr          -- I
-      AbsSyn.Unreachable        -> Right $ Do (AST.Unreachable (outputMetaAnnots  meta)) -- T
+          error "outputMetaStatement: Can't generate comments."
+      AbsSyn.Store value ptr    -> Left $ outputStore value ptr meta
+      AbsSyn.Switch scrut def tgs -> Right $ outputSwitch scrut def tgs meta
+      Return      result        -> Right $ outputReturn result meta
+      Expr        expr          -> Left $ outputMetaExpr meta expr
+      AbsSyn.Unreachable        ->
+          Right $ Do (AST.Unreachable (outputMetaAnnots  meta)) -- T
       Nop                       -> error "NOP generated as a statement"
       MetaStmt    meta s        -> outputMetaStatement meta s
 
@@ -237,7 +253,8 @@ outputMetaExpr  meta expr =
     case expr of
       AbsSyn.Alloca tp amount        -> outputAlloca tp amount meta
       LlvmOp        op left right    -> outputLlvmMachOp op left right meta
-      AbsSyn.Call   tp fp args attrs -> outputCall tp fp (map MetaVar args) attrs meta
+      AbsSyn.Call   tp fp args attrs ->
+          outputCall tp fp (map MetaVar args) attrs meta
       CallM         tp fp args attrs -> outputCall tp fp args attrs meta
       Cast          op from to       -> outputCast op from to meta
       Compare       op left right    -> outputCmpOp op left right meta
@@ -247,7 +264,8 @@ outputMetaExpr  meta expr =
       AbsSyn.Load   ptr              -> outputLoad ptr meta
       Malloc        tp amount        -> outputMalloc tp amount meta
       AbsSyn.Phi    tp precessors    -> outputPhi tp precessors meta
-      Asm           asm c ty v se sk -> error "outputMetaExpr: Assembly not used"
+      Asm           asm c ty v se sk ->
+          error "outputMetaExpr: Assembly not used"
       MExpr         meta e           -> outputMetaExpr meta e
 
 --------------------------------------------------------------------------------
@@ -280,7 +298,8 @@ outputCall  ct fptr args attrs metas =
             let tc = ct == TailCall
                 cc' = llvmCallConventionToCallingConvention cc
                 args' = map outputLlvmMetaExpr args
-                pattrs = map (map llvmParamAttrToParameterAttribute . snd) params
+                pattrs =
+                    map (map llvmParamAttrToParameterAttribute . snd) params
                 attrs' = map llvmFuncAttrToFunctionAttribute attrs
                 metas' = outputMetaAnnots metas
             in  Do $ AST.Call { isTailCall = tc,
@@ -294,7 +313,8 @@ outputCall  ct fptr args attrs metas =
 
 
 
-outputLlvmMachOp :: LlvmMachOp -> LlvmVar -> LlvmVar -> [MetaAnnot] -> Named Instruction
+outputLlvmMachOp ::  LlvmMachOp -> LlvmVar -> LlvmVar ->
+                     [MetaAnnot] -> Named Instruction
 outputLlvmMachOp  op left right metas =
     Do $
        (case op of
@@ -321,7 +341,8 @@ outputLlvmMachOp  op left right metas =
                       metas' = outputMetaAnnots  metas
 
 
-outputCmpOp :: LlvmCmpOp -> LlvmVar -> LlvmVar -> [MetaAnnot] -> Named Instruction
+outputCmpOp ::  LlvmCmpOp -> LlvmVar -> LlvmVar ->
+                [MetaAnnot] -> Named Instruction
 outputCmpOp  op left right metas =
     let
         left' = llvmVarToOperand  left
@@ -330,13 +351,17 @@ outputCmpOp  op left right metas =
         rty = getVarType right
         metas' = outputMetaAnnots  metas
     in if isInt lty && isInt rty
-       then Do $ ICmp ((fromJust . llvmCmpOpToIntegerPredicate) op) left' right' metas'
+       then Do $ ICmp ((fromJust . llvmCmpOpToIntegerPredicate) op)
+                        left' right' metas'
        else if isFloat lty && isFloat rty
-            then Do $ FCmp ((fromJust . llvmCmpOpToFloatingPointPredicate) op) left' right' metas'
+            then Do $ FCmp ((fromJust . llvmCmpOpToFloatingPointPredicate) op)
+                             left' right' metas'
             else error $
-                     "outputCmpOp: Cannot compare incomparable types " ++ show lty ++ ", " ++ show rty
+                     "outputCmpOp: Cannot compare incomparable types " ++
+                     show lty ++ ", " ++ show rty
 
-outputAssignment :: LlvmVar -> LlvmExpression -> [MetaAnnot] -> Named Instruction
+outputAssignment ::  LlvmVar -> LlvmExpression -> [MetaAnnot] ->
+                     Named Instruction
 outputAssignment  var expr metas =
     case outputLlvmExpression  (MExpr metas expr) of
       Do expr' -> (llvmVarToName var) := expr'
@@ -386,8 +411,9 @@ outputStore  val dst metas
     valOp = llvmVarToOperand  val
     metas' = outputMetaAnnots  metas
 
-outputCast :: LlvmCastOp -> LlvmVar -> LlvmType -> [MetaAnnot] -> Named Instruction
-outputCast  op var ty metas = 
+outputCast ::  LlvmCastOp -> LlvmVar -> LlvmType ->
+               [MetaAnnot] -> Named Instruction
+outputCast  op var ty metas =
     Do $ (case op of
             LM_Trunc    -> Trunc operand ty' metas'
             LM_Zext     -> ZExt operand ty' metas'
@@ -407,13 +433,9 @@ outputCast  op var ty metas =
              metas' = outputMetaAnnots  metas
 
 -- As of LLVM 3.0, malloc is no longer an instruction of the LLVM IR.
--- One solution to deal with this is to call the @malloc function instead. It may also be possible
--- to replace it with alloca instruction(s), or just not generate mallocs in the first place.
--- I think we can get away without generating these in the first place.
 outputMalloc :: LlvmType -> Int -> [MetaAnnot] -> Named Instruction --'done'
 outputMalloc tp amount metas = error "malloc not implemented"
 
--- Must specify a width for the amount of memory requested, assume a 64 bit quantity.
 outputAlloca :: LlvmType -> Int -> [MetaAnnot] -> Named Instruction
 outputAlloca  ty amount metas = Do $ AST.Alloca ty' (Just numElems) 0 metas'
     where ty' = llvmTypeToType ty
@@ -421,7 +443,8 @@ outputAlloca  ty amount metas = Do $ AST.Alloca ty' (Just numElems) 0 metas'
           numElems = ConstantOperand (C.Int 32 (toInteger amount))
           metas' = outputMetaAnnots  metas
 
-outputGetElementPtr :: Bool -> LlvmVar -> [LlvmVar] -> [MetaAnnot] -> Named Instruction
+outputGetElementPtr ::  Bool -> LlvmVar -> [LlvmVar] ->
+                        [MetaAnnot] -> Named Instruction
 outputGetElementPtr  inb ptr idx metas = Do $ GetElementPtr inb ptr' idx' metas'
     where ptr' = llvmVarToOperand  ptr
           idx' = map (llvmVarToOperand ) idx
@@ -438,8 +461,10 @@ outputBranch  var metas = Do $ Br name metas'
     where name = llvmVarToName var
           metas' = outputMetaAnnots  metas
 
-outputBranchIf :: LlvmVar -> LlvmVar -> LlvmVar -> [MetaAnnot] -> Named Terminator
-outputBranchIf  cond trueT falseT metas = Do $ CondBr cond' trueT' falseT' metas'
+outputBranchIf ::  LlvmVar -> LlvmVar -> LlvmVar ->
+                   [MetaAnnot] -> Named Terminator
+outputBranchIf  cond trueT falseT metas =
+    Do $ CondBr cond' trueT' falseT' metas'
     where cond' = llvmVarToOperand  cond
           trueT' = llvmVarToName trueT
           falseT' = llvmVarToName falseT
@@ -452,14 +477,18 @@ outputPhi  ty preds metas = Do $ AST.Phi ty' preds' metas'
           errStr = concat $ map (\(op,name) -> show op) preds
           metas' = outputMetaAnnots  metas
 
-outputSwitch :: LlvmVar -> LlvmVar -> [(LlvmVar,LlvmVar)] -> [MetaAnnot] -> Named Terminator
+outputSwitch ::  LlvmVar -> LlvmVar -> [(LlvmVar,LlvmVar)] ->
+                 [MetaAnnot] -> Named Terminator
 outputSwitch  op dflt targets metas = Do $ AST.Switch op' dflt' targets' metas'
     where op' = llvmVarToOperand op
           dflt' = llvmVarToName dflt
-          targets' = map (\(con, name) -> (llvmVarToConstant con, llvmVarToName name)) targets
+          targets' =
+              map (\(con, name) -> (llvmVarToConstant con, llvmVarToName name))
+                  targets
           metas' = outputMetaAnnots  metas
 
-outputAsm :: LMString -> LMString -> LlvmType -> [LlvmVar] -> Bool -> Bool -> IA.InlineAssembly
+outputAsm ::  LMString -> LMString -> LlvmType -> [LlvmVar] ->
+              Bool -> Bool -> IA.InlineAssembly
 outputAsm asm constraints rty vars sideeffect alignstack =
     IA.InlineAssembly {
       IA.type' = llvmTypeToType rty,
@@ -467,7 +496,7 @@ outputAsm asm constraints rty vars sideeffect alignstack =
       IA.constraints = unpackFS constraints,
       IA.hasSideEffects = sideeffect,
       IA.alignStack= alignstack,
-      IA.dialect = IA.ATTDialect -- Not sure about this, could just as well be intel
+      IA.dialect = IA.ATTDialect
    }
 
 -- Get a value from a vector
@@ -478,7 +507,8 @@ outputExtract  vec idx metas = Do $ ExtractElement vec' idx' metas'
           metas' = outputMetaAnnots  metas
 
 -- Insert a value into a vector
-outputInsert :: LlvmVar -> LlvmVar -> LlvmVar -> [MetaAnnot] -> Named Instruction
+outputInsert ::  LlvmVar -> LlvmVar -> LlvmVar ->
+                 [MetaAnnot] -> Named Instruction
 outputInsert  vec elt idx metas = Do $ InsertElement vec' elt' idx' metas'
     where vec' = llvmVarToOperand vec
           elt' = llvmVarToOperand elt
@@ -489,7 +519,5 @@ outputMetaAnnots :: [MetaAnnot] -> InstructionMetadata
 outputMetaAnnots  metas = (concat . map (outputMetaAnnot )) metas
 
 outputMetaAnnot :: MetaAnnot -> InstructionMetadata
-outputMetaAnnot  (MetaAnnot str expr) = [(unpackFS str, metaExprToMetadataNode  expr)]
-
-varErr :: String -> String -> LlvmVar -> a
-varErr fname argname var = error $ fname ++ ": in " ++ argname ++ " with value " ++ show var
+outputMetaAnnot  (MetaAnnot str expr) =
+    [(unpackFS str, metaExprToMetadataNode expr)]
