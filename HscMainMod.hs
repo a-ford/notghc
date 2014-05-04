@@ -649,10 +649,7 @@ newRunPhaseHook (RealPhase LlvmLlc) input dflags =
     P (\env state -> return (state, (RealPhase LlvmMangle, input)))
 
 newRunPhaseHook (RealPhase As) input dflags =
-    do end <- liftIO $ getCPUTime
-       let end' = (fromIntegral end) / (10^9)
-       liftIO $ debugTraceMsg dflags 0 (text (show end'))
-       liftIO $ debugTraceMsg dflags 1 (ppr (RealPhase As))
+    do liftIO $ debugTraceMsg dflags 1 (ppr (RealPhase As))
        runPhase (RealPhase As) input dflags
 
 

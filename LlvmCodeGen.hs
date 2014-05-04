@@ -90,9 +90,7 @@ llvmCodeGen' platform cmm_stream
         _ <- Stream.collect llvmStream
 
         -- Declare aliases for forward references
-        aliases <- generateAliases
-        let defs = outputLlvmData aliases
-        outputLlvm defs
+        outputLlvm . outputLlvmData =<< generateAliases
 
         -- Postamble
         cmmUsedLlvmGens

@@ -697,7 +697,7 @@ showSupportedExtensions :: IO ()
 showSupportedExtensions = mapM_ putStrLn supportedLanguagesAndExtensions
 
 showVersion :: IO ()
-showVersion = putStrLn (cProjectName ++ ", version " ++ cProjectVersion)
+showVersion = putStrLn (cProjectName ++ ", NotGHC, version " ++ cProjectVersion)
 
 showOptions :: IO ()
 showOptions = putStr (unlines availableOptions)

@@ -245,9 +245,9 @@ llvmParameterToNamedParameter ::  LlvmParameter ->
                                   Either String Word -> AST.Parameter
 llvmParameterToNamedParameter (ty, attrs) name =
     Parameter ty' name' attrs'
-        where attrs' = map llvmParamAttrToParameterAttribute attrs
-              ty' = llvmTypeToType ty
-              name' = either Name UnName name
+        where attrs'  = map llvmParamAttrToParameterAttribute attrs
+              ty'     = llvmTypeToType ty
+              name'   = either Name UnName name
 
 -- Shouldn't need to use this, we can use the context we have when converting
 -- parameters to just call llvmParameterToNamedParameter directly.

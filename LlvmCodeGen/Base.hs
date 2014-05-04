@@ -279,20 +279,25 @@ replaceExtension filenm ext =
             else name++('.':(replaceExtension' (drop 1 oldext) True))
 
 -- | Get initial Llvm environment.
-runLlvm :: DynFlags -> LlvmVersion -> FilePath -> UniqSupply -> LlvmM () -> IO ()
+runLlvm ::  DynFlags -> LlvmVersion -> FilePath ->
+            UniqSupply -> LlvmM () -> IO ()
 runLlvm dflags ver filenm us m = do
     (n, env') <- runLlvmM m env
-    debugTraceMsg dflags 2 (Outp.text (showPretty (envModule env')))
-
+    let mod = envModule env'
+    debugTraceMsg dflags 2 (Outp.text (showPretty mod))
     --targetMachine <- platformToTargetMachine (targetPlatform dflags)
 
 -- For debugging only
 {-
+
+
+    writeFile (replaceExtension filenm "mod1") (showPretty mod)
+
     asm <- Context.withContext
              (\c ->
                Err.runErrorT $ -- IO Either String ByteString
-                 (General.withModuleFromAST c (envModule env')
-                    (\mod -> General.moduleLLVMAssembly mod)))
+                 (General.withModuleFromAST c mod
+                    (\mod' -> General.moduleLLVMAssembly mod')))
 
     case asm of
       Left err -> error err
@@ -307,10 +312,10 @@ runLlvm dflags ver filenm us m = do
                Target.withDefaultTargetMachine
                  (\tm ->
                     Err.runErrorT $
-                      (General.withModuleFromAST c (envModule env')
-                         (\mod ->
+                      (General.withModuleFromAST c mod
+                         (\mod' ->
                            Err.runErrorT $
-                             General.moduleTargetAssembly tm mod))))
+                             General.moduleTargetAssembly tm mod'))))
     -- We should be able to use General.writeTargetAssemblyToFile here,
     -- but it segfaults.
     let errfun e = error $ "runLlvm: Whilst outputting assembly: " ++ e
